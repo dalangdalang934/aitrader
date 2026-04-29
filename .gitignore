@@ -1,0 +1,94 @@
+# IDE 配置文件
+.idea/
+*.iml
+*.xml
+
+# 编译产物
+main-auto
+*.exe
+main
+main_test
+
+# Go 相关
+*.test
+*.out
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 临时文件
+*.log
+*.tmp
+*.bak
+*.backup
+
+# 环境变量和配置文件
+.env
+.env.local
+.env.*.local
+config.json
+config.mock.json
+jiaoyibot.zip
+
+# 日志文件
+logs/
+*.log
+
+# 决策日志
+decision_logs/
+coin_pool_cache/
+main_test
+
+# Worktrees
+.worktrees/
+
+# Node.js
+web/node_modules/
+node_modules/
+web/dist/
+web/.vite/
+web/.env.local
+.env.local
+
+# 运行时数据（不入库）
+data/
+
+# 编辑器
+.obsidian/
+
+# Office 临时锁文件
+~$*
+
+# 论文/文档/视频等二进制文件
+*.doc
+*.docx
+*.pdf
+*.mov
+*.mp4
+*.avi
+
+# 论文相关文件
+毕业设计.md
+外文文献.md
+南通大学*.doc
+
+# 文档中的图片和视频
+docs/
+docs/papers/
+docs/papers-md/
+
+# Obsidian
+.obsidian/
+
+# 编辑器临时文件
+~$*
+
+# 运行时数据
+data/
+decision_logs/
+coin_pool_cache/
+
+# 日志
+logs/
+*.log

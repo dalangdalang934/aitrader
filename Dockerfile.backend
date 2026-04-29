@@ -1,0 +1,32 @@
+ARG GO_VERSION=1.25
+
+FROM golang:${GO_VERSION}-bookworm AS builder
+WORKDIR /app
+
+# Install dependencies first (better layer caching)
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy the rest of the project (respecting .dockerignore)
+COPY . .
+
+# Build the backend binary
+RUN CGO_ENABLED=0 GOOS=linux go build -o /app/main ./
+
+FROM debian:bookworm-slim AS runner
+WORKDIR /app
+
+# Include CA certificates for outbound HTTPS calls (exchanges, data APIs)
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app/main ./main
+
+EXPOSE 8080
+
+# Default config path (can be overridden via command in docker-compose)
+ENV CONFIG_PATH=/app/config.json
+
+ENTRYPOINT ["./main"]
+CMD ["/app/config.json"]

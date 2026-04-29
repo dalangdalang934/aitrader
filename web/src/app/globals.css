@@ -1,0 +1,654 @@
+@import "tailwindcss";
+
+:root {
+  --font-geist-sans:
+    "Avenir Next",
+    "SF Pro Display",
+    "PingFang SC",
+    "Noto Sans SC",
+    "Microsoft YaHei",
+    system-ui,
+    sans-serif;
+  --font-geist-mono:
+    "IBM Plex Mono",
+    "JetBrains Mono",
+    "SFMono-Regular",
+    "Cascadia Code",
+    "Menlo",
+    monospace;
+  /* default to dark theme */
+  --background: #0a0a0a;
+  --foreground: #ededed;
+  --header-h: 58px;
+  --ticker-h: 36px;
+  /* Theme-aware logo chips (light defaults) */
+  --chart-logo-bg: rgba(255, 255, 255, 0.9);
+  --chart-logo-ring: rgba(255, 255, 255, 0.28);
+  --logo-chip-bg: rgba(255, 255, 255, 0.06);
+  --logo-chip-ring: rgba(255, 255, 255, 0.15);
+
+  /* Global model brand colors (for CSS usage) */
+  --brand-qwen: #8b5cf6;
+  --brand-deepseek: #4d6bfe;
+  --brand-claude-sonnet: #ff6b35;
+  --brand-grok: #000000;
+  --brand-gemini: #4285f4;
+  --brand-gpt5: #10a37f;
+  /* also expose canonical ids */
+  --brand-qwen3-max: #8b5cf6;
+  --brand-deepseek-chat-v3_1: #4d6bfe;
+  --brand-claude-sonnet-4-5: #ff6b35;
+  --brand-grok-4: #000000;
+  --brand-gemini-2-5-pro: #4285f4;
+  --brand-gpt-5: #10a37f;
+
+  /* Skeleton background by theme */
+  --skeleton-bg: rgba(255, 255, 255, 0.1);
+  --watermark-color: rgba(255, 255, 255, 0.06);
+
+  /* Chart/UI themed variables (dark defaults) */
+  --panel-bg: #0a0a0a;
+  --panel-border: rgba(255, 255, 255, 0.1);
+  --muted-text: #a1a1aa; /* zinc-400 */
+  --axis-tick: #a1a1aa;
+  --grid-stroke: rgba(255, 255, 255, 0.08);
+  --ref-line: #a1a1aa;
+  --chip-border: rgba(255, 255, 255, 0.15);
+  --btn-active-bg: rgba(255, 255, 255, 0.1);
+  --btn-active-fg: #e4e4e7; /* zinc-200 */
+  --btn-inactive-fg: #d4d4d8; /* zinc-300 */
+  --btn-hover-bg: rgba(255, 255, 255, 0.05);
+  --tooltip-bg: #09090b;
+  --tooltip-border: rgba(255, 255, 255, 0.1);
+  --tooltip-fg: #e4e4e7;
+  /* Header/branding */
+  --brand-accent: #c084fc; /* purple-300 */
+
+  /* Chart series hover states */
+  --series-opacity-normal: 1;
+  --series-opacity-dimmed: 0.2;
+  --header-bg: rgba(0, 0, 0, 0.7);
+  --header-border: rgba(255, 255, 255, 0.1);
+  --shell-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* Ticker loop animation for overflowing price list (mobile friendly) */
+.ticker-track {
+  animation: ticker-scroll 22s linear infinite;
+  will-change: transform;
+  display: inline-flex;
+  align-items: center;
+  gap: 1.5rem;
+  white-space: nowrap;
+}
+@keyframes ticker-scroll {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.text-muted {
+  color: var(--muted-text);
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.ticker-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 1.5rem;
+  white-space: nowrap;
+}
+
+.ticker-entry {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  margin-right: 0.5rem;
+  font-size: 12px;
+  letter-spacing: 0.015em;
+}
+.ticker-entry:last-of-type {
+  margin-right: 0;
+}
+.ticker-symbol {
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.ticker-price {
+  color: var(--muted-text);
+}
+
+.ticker-wrap {
+  width: 100%;
+  overflow: hidden;
+}
+
+.ticker-loop {
+  min-width: 100%;
+}
+
+/* explicit theme overrides via data-theme */
+:root[data-theme="light"] {
+  --background: #ffffff;
+  --foreground: #171717;
+  --chart-logo-bg: rgba(0, 0, 0, 0.75);
+  --chart-logo-ring: rgba(0, 0, 0, 0.25);
+  --logo-chip-bg: rgba(0, 0, 0, 0.06);
+  --logo-chip-ring: rgba(0, 0, 0, 0.15);
+  --skeleton-bg: rgba(0, 0, 0, 0.1);
+  --watermark-color: rgba(0, 0, 0, 0.06);
+
+  /* light theme overrides */
+  --panel-bg: #ffffff;
+  --panel-border: rgba(0, 0, 0, 0.1);
+  --muted-text: #52525b; /* zinc-600 */
+  --axis-tick: #52525b;
+  --grid-stroke: rgba(0, 0, 0, 0.08);
+  --ref-line: #9ca3af; /* zinc-400 */
+  --chip-border: rgba(0, 0, 0, 0.15);
+  --btn-active-bg: rgba(0, 0, 0, 0.1);
+  --btn-active-fg: #18181b;
+  --btn-inactive-fg: #52525b;
+  --btn-hover-bg: rgba(0, 0, 0, 0.05);
+  --tooltip-bg: #ffffff;
+  --tooltip-border: rgba(0, 0, 0, 0.12);
+  --tooltip-fg: #18181b;
+  /* apply only in light theme: fallback for too-light line colors */
+  --line-too-light-fallback: #4b5563; /* neutral dark for visibility */
+  --table-row-alt: rgba(0, 0, 0, 0.05);
+  --link-hover: #000000;
+  --brand-accent: #7c3aed; /* purple-600 */
+  --header-bg: rgba(255, 255, 255, 0.7);
+  --header-border: rgba(0, 0, 0, 0.1);
+}
+:root[data-theme="dark"] {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+  --chart-logo-bg: rgba(255, 255, 255, 0.9);
+  --chart-logo-ring: rgba(255, 255, 255, 0.28);
+  --logo-chip-bg: rgba(255, 255, 255, 0.06);
+  --logo-chip-ring: rgba(255, 255, 255, 0.15);
+  --skeleton-bg: rgba(255, 255, 255, 0.1);
+  --watermark-color: rgba(255, 255, 255, 0.06);
+  /* apply only in dark theme: fallback for too-dark line colors */
+  --line-too-dark-fallback: #d4d4d8; /* zinc-300 */
+  /* brand-specific stroke overrides */
+  --brand-grok-4-stroke: #ffffff;
+  --table-row-alt: rgba(255, 255, 255, 0.05);
+  --link-hover: #ffffff;
+  --brand-accent: #c084fc; /* purple-300 */
+  --header-bg: rgba(0, 0, 0, 0.7);
+  --header-border: rgba(255, 255, 255, 0.1);
+}
+
+body {
+  background:
+    radial-gradient(circle at top left, rgba(16, 163, 127, 0.08), transparent 28%),
+    radial-gradient(circle at top right, rgba(77, 107, 254, 0.12), transparent 26%),
+    linear-gradient(180deg, color-mix(in srgb, var(--background) 96%, black) 0%, var(--background) 100%);
+  color: var(--foreground);
+  font-family:
+    IBM Plex Mono,
+    monospace;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+html,
+body {
+  height: 100%;
+  /* 允许页面自然纵向滚动，避免详情页/排行榜被裁切；横向默认隐藏 */
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* 固定滚动条占位，防止内容变化导致滚动条出现/消失引起宽度跳动 */
+  scrollbar-gutter: stable;
+}
+
+/* Tabular numbers for data-heavy UI */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings:
+    "tnum" 1,
+    "lnum" 1;
+}
+
+/* Terminal-like monospace typography for model chat */
+.terminal-text {
+  font-family:
+    IBM Plex Mono,
+    monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* Force UI sans (for headers/nav) */
+.ui-sans {
+  font-family:
+    var(--font-geist-sans),
+    system-ui,
+    -apple-system,
+    Segoe UI,
+    Roboto,
+    Helvetica Neue,
+    Arial,
+    Noto Sans,
+    Apple Color Emoji,
+    Segoe UI Emoji;
+}
+
+/* Terminal vibe background subtle scanlines */
+/* Disable scanlines by default (light). Only enable in dark theme. */
+.terminal-scan {
+  background: none;
+}
+:root[data-theme="dark"] .terminal-scan {
+  background:
+    linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%),
+    linear-gradient(
+      90deg,
+      rgba(255, 0, 0, 0.04),
+      rgba(0, 255, 0, 0.02),
+      rgba(0, 0, 255, 0.04)
+    );
+  background-size:
+    100% 2px,
+    3px 100%;
+}
+
+.dashboard-shell {
+  position: relative;
+}
+
+.dashboard-panel {
+  border: 1px solid color-mix(in srgb, var(--panel-border) 92%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--logo-chip-bg) 78%, transparent) 0%, transparent 100%),
+    var(--panel-bg);
+  box-shadow: var(--shell-shadow);
+}
+
+.dashboard-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.dashboard-kicker {
+  color: var(--muted-text);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.dashboard-title {
+  margin-top: 0.35rem;
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-size: clamp(1.1rem, 1.4vw, 1.45rem);
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.dashboard-note {
+  border: 1px solid color-mix(in srgb, var(--panel-border) 82%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--logo-chip-bg) 82%, transparent);
+  color: var(--muted-text);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  padding: 0.55rem 0.85rem;
+  text-transform: uppercase;
+}
+
+.tab-surface {
+  border: 1px solid color-mix(in srgb, var(--panel-border) 86%, transparent);
+  border-radius: 1rem;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--logo-chip-bg) 72%, transparent) 0%, transparent 100%),
+    var(--panel-bg);
+  box-shadow: var(--shell-shadow);
+}
+
+.tab-toolbar-label {
+  color: var(--muted-text);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.tab-toolbar-title {
+  margin-top: 0.25rem;
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.tab-toolbar-note {
+  color: var(--muted-text);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.tab-filterbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.15rem;
+}
+
+.tab-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--muted-text);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tab-filter-label {
+  letter-spacing: 0.08em;
+}
+
+.tab-select {
+  min-width: 9rem;
+  border: 1px solid color-mix(in srgb, var(--panel-border) 86%, transparent);
+  border-radius: 999px;
+  padding: 0.45rem 0.85rem;
+  background: color-mix(in srgb, var(--logo-chip-bg) 72%, transparent);
+  color: var(--foreground);
+  font-size: 12px;
+  line-height: 1.1;
+}
+
+.tab-chip {
+  border: 1px solid color-mix(in srgb, var(--panel-border) 82%, transparent);
+  border-radius: 999px;
+  padding: 0.35rem 0.75rem;
+  background: color-mix(in srgb, var(--logo-chip-bg) 74%, transparent);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-size: 11px;
+  line-height: 1.1;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.tab-chip:hover {
+  background: color-mix(in srgb, var(--logo-chip-bg) 88%, transparent);
+  transform: translateY(-1px);
+}
+
+.tab-empty {
+  padding: 1.25rem 1.15rem;
+  color: var(--muted-text);
+  font-size: 13px;
+}
+
+.tab-summary-grid {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.tab-stat-card {
+  border: 1px solid color-mix(in srgb, var(--panel-border) 78%, transparent);
+  border-radius: 0.9rem;
+  padding: 0.9rem 1rem;
+  background: color-mix(in srgb, var(--logo-chip-bg) 66%, transparent);
+}
+
+.tab-stat-label {
+  color: var(--muted-text);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tab-stat-value {
+  margin-top: 0.45rem;
+  color: var(--foreground);
+  font-size: 1rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.tab-section {
+  border: 1px solid color-mix(in srgb, var(--panel-border) 74%, transparent);
+  border-radius: 0.9rem;
+  background: color-mix(in srgb, var(--logo-chip-bg) 60%, transparent);
+}
+
+.tab-section-header {
+  color: var(--muted-text);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.tab-section-body {
+  padding: 0.95rem 1rem;
+}
+
+.tab-table-wrap {
+  overflow-x: auto;
+}
+
+.tab-table {
+  width: 100%;
+  min-width: 700px;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.tab-table thead {
+  color: var(--muted-text);
+}
+
+.tab-table thead tr {
+  border-bottom: 1px solid color-mix(in srgb, var(--panel-border) 88%, transparent);
+  background: color-mix(in srgb, var(--logo-chip-bg) 54%, transparent);
+}
+
+.tab-table th,
+.tab-table td {
+  padding: 0.8rem 0.95rem;
+}
+
+.tab-table th {
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.tab-table td {
+  vertical-align: top;
+}
+
+.tab-table tbody tr {
+  border-bottom: 1px solid color-mix(in oklab, var(--panel-border) 50%, transparent);
+  transition: background-color 160ms ease;
+}
+
+.tab-table tbody tr:hover {
+  background: color-mix(in srgb, var(--logo-chip-bg) 64%, transparent);
+}
+
+.arena-price-ticker-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  width: min(1680px, calc(100% - 1.5rem));
+  margin: 0.5rem auto 0;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--panel-border) 86%, transparent);
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, rgba(16, 163, 127, 0.08), rgba(77, 107, 254, 0.1) 42%, transparent 100%),
+    color-mix(in srgb, var(--logo-chip-bg) 82%, transparent);
+  box-shadow: var(--shell-shadow);
+}
+
+.ticker-badge {
+  flex-shrink: 0;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(16, 163, 127, 0.18);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 1023px) {
+  .dashboard-panel-header {
+    flex-direction: column;
+  }
+
+  .dashboard-note {
+    align-self: flex-start;
+  }
+
+  .arena-price-ticker-bar {
+    width: calc(100% - 1rem);
+    margin-top: 0.4rem;
+  }
+
+  .tab-filterbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .tab-filter-chip {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .tab-select {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
+/* Reusable logo chip styles */
+.logo-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--logo-chip-bg);
+  border: 1px solid var(--logo-chip-ring);
+  border-radius: 6px;
+}
+.logo-chip-sm {
+  width: 16px;
+  height: 16px;
+}
+.logo-chip-md {
+  width: 20px;
+  height: 20px;
+}
+
+/* Smooth focus/dim transitions for Recharts line groups */
+.recharts-wrapper g.series path {
+  transition:
+    opacity 160ms ease,
+    stroke-width 160ms ease;
+}
+.recharts-wrapper g.series.dim path {
+  opacity: 0.25;
+}
+.recharts-wrapper g.series.focused path {
+  opacity: 1;
+  stroke-width: 2.4px;
+}
+
+/* Remove tap/click highlight around SVG content inside charts */
+.no-tap-highlight {
+  -webkit-tap-highlight-color: transparent;
+}
+.recharts-wrapper,
+.recharts-wrapper * {
+  -webkit-tap-highlight-color: transparent;
+}
+.recharts-wrapper svg {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.recharts-wrapper image,
+.recharts-wrapper g:focus {
+  outline: none;
+}
+/* Remove focus ring on Chrome/macOS when clicking the SVG surface */
+.recharts-wrapper .recharts-surface,
+.recharts-wrapper .recharts-surface:focus,
+.recharts-wrapper .recharts-surface:focus-visible {
+  outline: none !important;
+}
+.recharts-wrapper:focus,
+.recharts-wrapper *:focus {
+  outline: none !important;
+}
+
+/* Themed skeleton background */
+.skeleton-bg {
+  background: var(--skeleton-bg);
+}
+
+/* Generic chip buttons that respect theme variables */
+.chip-btn {
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
+}
+.chip-btn:hover {
+  background: var(--btn-hover-bg);
+}
+
+/* Endcap value chip pop-in on update */
+/* endcap value chip now static; only keep subtle ping via Tailwind's animate-ping */
+
+/* Chart series hover optimization - use CSS instead of JS DOM manipulation */
+.recharts-surface g.series {
+  opacity: var(--series-opacity-normal);
+  transition: opacity 200ms ease;
+}
+
+/* When chart container is hovered and has a focused series */
+.chart-container:has(g.series:hover) g.series:not(:hover) {
+  opacity: var(--series-opacity-dimmed);
+}
