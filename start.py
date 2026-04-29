@@ -229,7 +229,22 @@ def save_prompt(content):
 
 def edit_with_editor(content):
     """使用系统编辑器编辑"""
-    editor = os.environ.get('EDITOR', 'vim')
+    # 优先使用 nano（更容易上手），其次 vim，最后 vi
+    if os.environ.get('EDITOR'):
+        editor = os.environ['EDITOR']
+    elif subprocess.call(['which', 'nano'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0:
+        editor = 'nano'
+    elif subprocess.call(['which', 'vim'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0:
+        editor = 'vim'
+    else:
+        editor = 'vi'
+    
+    print(f"\n📋 将使用 {editor} 编辑器打开提示词文件...")
+    if editor in ['vim', 'vi']:
+        print("💡 vim 退出方法: 按 Esc 键，然后输入 :wq 回车（保存）或 :q! 回车（不保存）")
+    elif editor == 'nano':
+        print("💡 nano 退出方法: 按 Ctrl+O 回车保存，然后按 Ctrl+X 退出")
+    print("")
     
     with tempfile.NamedTemporaryFile(mode='w+', suffix='.tmpl', delete=False) as tmp:
         tmp.write(content)
