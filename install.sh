@@ -277,7 +277,7 @@ setup_config() {
         echo -e "${YELLOW}复制配置文件模板...${NC}"
         cp config.json.example config.json
         echo -e "${YELLOW}请编辑 config.json 填入你的 API 密钥${NC}"
-        echo -e "${YELLOW}运行: python3 scripts/start.py${NC}"
+        echo -e "${YELLOW}运行: python3 start.py${NC}"
     fi
 }
 
@@ -316,7 +316,7 @@ echo -e "${GREEN}  安装完成！${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 echo -e "${BLUE}后续步骤:${NC}"
-echo -e "  1. 编辑配置: ${YELLOW}python3 scripts/start.py${NC}"
+echo -e "  1. 编辑配置: ${YELLOW}python3 start.py${NC}"
 echo -e "  2. 启动后端: ${YELLOW}go run main.go${NC} 或 ${YELLOW}./main${NC}"
 echo -e "  3. 启动前端: ${YELLOW}cd web && npm run dev${NC}"
 echo ""
