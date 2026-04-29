@@ -181,6 +181,10 @@ def config_menu(config):
                 modified = True
         elif choice == '5':
             save_config(config)
+            print("\n💡 提示: 配置已保存，需要重启系统才能生效")
+            restart = input("是否立即重启系统? [y/N]: ").strip().lower()
+            if restart in ['y', 'yes', '是']:
+                restart_system()
             return
         elif choice == '6':
             if modified:
@@ -520,6 +524,29 @@ def system_maintenance():
         else:
             print("Docker 未运行")
 
+def restart_system():
+    """重启系统"""
+    docker_cmd = get_docker_compose_cmd()
+    
+    if docker_cmd is None:
+        print("❌ 错误: 未检测到 Docker Compose")
+        print("💡 请确保 Docker 已安装")
+        return
+    
+    print("🔄 正在重启系统...")
+    result = os.system(f"{docker_cmd} restart")
+    
+    if result == 0:
+        print("\n" + "="*50)
+        print("  ✅ 系统重启成功!")
+        print("="*50)
+        print("\n📊 访问面板:")
+        print("   本地访问: http://localhost:3000")
+        print("   公网访问: http://<服务器IP>:3000")
+        print("="*50)
+    else:
+        print("❌ 重启失败")
+
 def show_main_menu():
     """显示主菜单"""
     print("\n" + "="*50)
@@ -528,8 +555,9 @@ def show_main_menu():
     print("1. ⚙️  编辑系统配置 (config.json)")
     print("2. 📝 编辑交易提示词 (System Prompt)")
     print("3. 🚀 启动系统")
-    print("4. 🔧 系统维护")
-    print("5. ❌ 退出")
+    print("4. 🔄 重启系统")
+    print("5. 🔧 系统维护")
+    print("6. ❌ 退出")
     print("="*50)
 
 def main():
@@ -538,7 +566,7 @@ def main():
     
     while True:
         show_main_menu()
-        choice = input("\n请选择 [1-5]: ").strip()
+        choice = input("\n请选择 [1-6]: ").strip()
         
         if choice == '1':
             config = load_config()
@@ -549,8 +577,10 @@ def main():
         elif choice == '3':
             start_system()
         elif choice == '4':
-            system_maintenance()
+            restart_system()
         elif choice == '5':
+            system_maintenance()
+        elif choice == '6':
             print("\n👋 再见!")
             break
         else:
