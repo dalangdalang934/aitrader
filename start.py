@@ -124,11 +124,6 @@ def edit_news(config):
     if new_key:
         config['news_opennews_api_key'] = new_key
     
-    interval = config.get('scan_interval_minutes', 3)
-    new_interval = input(f"扫描间隔 (分钟) [{interval}]: ").strip()
-    if new_interval:
-        config['scan_interval_minutes'] = int(new_interval)
-    
     print("✅ 新闻配置更新完成")
     return True
 
