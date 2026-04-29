@@ -448,9 +448,89 @@ def start_system():
             return
         
         print(f"🚀 启动 Docker Compose ({docker_cmd})...")
-        os.system(f"{docker_cmd} up -d")
+        result = os.system(f"{docker_cmd} up -d")
+        if result == 0:
+            print("\n" + "="*50)
+            print("  ✅ 系统启动成功!")
+            print("="*50)
+            print("\n📊 访问面板:")
+            print("   本地访问: http://localhost:3000")
+            print("   公网访问: http://<服务器IP>:3000")
+            print("\n📋 常用命令:")
+            print("   查看日志: docker compose logs -f")
+            print("   停止系统: docker compose down")
+            print("   重启系统: docker compose restart")
+            print("="*50)
     else:
         return
+
+def system_maintenance():
+    """系统维护"""
+    print("\n🔧 系统维护:")
+    print("1. 查看系统状态")
+    print("2. 查看日志")
+    print("3. 重启系统")
+    print("4. 停止系统")
+    print("5. 返回")
+    
+    choice = input("\n请选择 [1-5]: ").strip()
+    
+    docker_cmd = get_docker_compose_cmd()
+    
+    if choice == '1':
+        print("\n📊 系统状态:")
+        if docker_cmd:
+            os.system(f"{docker_cmd} ps")
+        else:
+            print("Docker Compose 未安装，无法查看容器状态")
+            print("\n手动检查:")
+            os.system("ps aux | grep './main' | grep -v grep")
+            os.system("ps aux | grep 'npm run dev' | grep -v grep")
+    elif choice == '2':
+        print("\n📋 查看日志:")
+        print("1. 后端日志")
+        print("2. 前端日志")
+        print("3. 全部日志")
+        log_choice = input("请选择 [1-3]: ").strip()
+        if docker_cmd:
+            if log_choice == '1':
+                os.system(f"{docker_cmd} logs -f backend")
+            elif log_choice == '2':
+                os.system(f"{docker_cmd} logs -f frontend")
+            else:
+                os.system(f"{docker_cmd} logs -f")
+        else:
+            print("Docker 未运行，查看本地日志:")
+            if os.path.exists("logs/app.log"):
+                os.system("tail -f logs/app.log")
+            else:
+                print("未找到日志文件")
+    elif choice == '3':
+        print("🔄 重启系统...")
+        if docker_cmd:
+            os.system(f"{docker_cmd} restart")
+            print("✅ 系统已重启")
+        else:
+            print("Docker 未运行，请手动重启")
+    elif choice == '4':
+        print("🛑 停止系统...")
+        if docker_cmd:
+            os.system(f"{docker_cmd} down")
+            print("✅ 系统已停止")
+        else:
+            print("Docker 未运行")
+
+def show_main_menu():
+    """显示主菜单"""
+    print("\n" + "="*50)
+    print("  🤖 AI新闻量化交易系统管理器")
+    print("="*50)
+    print("1. ⚙️  编辑系统配置 (config.json)")
+    print("2. 📝 编辑交易提示词 (System Prompt)")
+    print("3. 🚀 启动系统")
+    print("4. 🔧 系统维护")
+    print("5. ❌ 退出")
+    print("="*50)
 
 def main():
     print("🤖 AI新闻量化交易系统管理器")
@@ -458,7 +538,7 @@ def main():
     
     while True:
         show_main_menu()
-        choice = input("\n请选择 [1-4]: ").strip()
+        choice = input("\n请选择 [1-5]: ").strip()
         
         if choice == '1':
             config = load_config()
@@ -469,6 +549,8 @@ def main():
         elif choice == '3':
             start_system()
         elif choice == '4':
+            system_maintenance()
+        elif choice == '5':
             print("\n👋 再见!")
             break
         else:
