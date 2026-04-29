@@ -139,7 +139,7 @@ export default function ModelChatPanel() {
 function ChatCard({ row }: { row: ChatRow }) {
   const [open, setOpen] = useState(false);
   const color = getModelColor(row.model_id);
-  const hasOrders = orders.length > 0;
+  const hasOrders = (row.decisions ?? []).length > 0;
 
   return (
     <article className="tab-surface px-4 py-3">
