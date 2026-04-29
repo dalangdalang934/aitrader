@@ -407,6 +407,20 @@ def show_main_menu():
     print("4. ❌ 退出")
     print("="*50)
 
+def get_docker_compose_cmd():
+    """检测 docker compose 命令格式"""
+    # 检查新版 docker compose (Docker 20.10+)
+    result = os.system("docker compose version > /dev/null 2>&1")
+    if result == 0:
+        return "docker compose"
+    
+    # 检查旧版 docker-compose
+    result = os.system("docker-compose version > /dev/null 2>&1")
+    if result == 0:
+        return "docker-compose"
+    
+    return None
+
 def start_system():
     """启动系统"""
     print("\n🚀 启动选项:")
@@ -424,8 +438,17 @@ def start_system():
         print("🚀 启动前端...")
         os.system("cd web && npm run dev")
     elif choice == '3':
-        print("🚀 启动 Docker Compose...")
-        os.system("docker-compose up -d")
+        docker_cmd = get_docker_compose_cmd()
+        if docker_cmd is None:
+            print("❌ 错误: 未检测到 Docker Compose")
+            print("💡 请确保 Docker 已安装")
+            print("   安装方法:")
+            print("   - Ubuntu/Debian: sudo apt install docker-compose-plugin")
+            print("   - 或使用: ./install.sh 重新安装 Docker")
+            return
+        
+        print(f"🚀 启动 Docker Compose ({docker_cmd})...")
+        os.system(f"{docker_cmd} up -d")
     else:
         return
 
