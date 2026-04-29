@@ -6,6 +6,14 @@
 
 set -e
 
+# 自动切换到项目根目录（脚本可能在 scripts/ 下运行）
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/../go.mod" ]; then
+    cd "$SCRIPT_DIR/.."
+elif [ -f "$SCRIPT_DIR/go.mod" ]; then
+    cd "$SCRIPT_DIR"
+fi
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
