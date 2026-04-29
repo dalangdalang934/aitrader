@@ -608,7 +608,7 @@ async function handleConversations() {
       decisions.forEach((decision, idx) => {
         const ts = parseTimestamp(decision.timestamp, idx);
         const summary = pickSummary(decision);
-        const publicPrompt = decision.input_prompt ?? decision.user_prompt ?? "";
+        const publicPrompt = decision.input_prompt ?? decision.prompt ?? "";
         const cotTrace = decision.cot_trace ?? decision.cot_trace_summary ?? "";
         const llmResponse = buildDecisionMap(decision);
 
