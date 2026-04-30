@@ -3,7 +3,6 @@ package news
 import (
 	"context"
 	"log"
-	"strings"
 	"sync"
 	"time"
 

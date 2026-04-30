@@ -54,16 +54,30 @@ type PositionSnapshot struct {
 
 // DecisionAction 决策动作
 type DecisionAction struct {
-	Action     string    `json:"action"`      // open_long, open_short, close_long, close_short
-	Symbol     string    `json:"symbol"`      // 币种
-	Quantity   float64   `json:"quantity"`    // 数量
-	Leverage   int       `json:"leverage"`    // 杠杆（开仓时）
-	Price      float64   `json:"price"`       // 执行价格
-	OrderID    int64     `json:"order_id"`    // 订单ID
-	Timestamp  time.Time `json:"timestamp"`   // 执行时间
-	Success    bool      `json:"success"`     // 是否成功
-	Error      string    `json:"error"`       // 错误信息
-	PositionID string    `json:"position_id"` // 关联的仓位ID
+	Action        string    `json:"action"`                   // open_long, open_short, close_long, close_short
+	Symbol        string    `json:"symbol"`                   // 币种
+	Quantity      float64   `json:"quantity"`                 // 数量
+	Leverage      int       `json:"leverage"`                 // 杠杆（开仓时）
+	Price         float64   `json:"price"`                    // 执行价格
+	PriceSource   string    `json:"price_source,omitempty"`   // exchange_trade / market_snapshot
+	OrderID       int64     `json:"order_id"`                 // 订单ID
+	Timestamp     time.Time `json:"timestamp"`                // 执行时间
+	Success       bool      `json:"success"`                  // 是否成功
+	Error         string    `json:"error"`                    // 错误信息
+	ExecutionType string    `json:"execution_type,omitempty"` // active / passive
+	PositionID    string    `json:"position_id"`              // 关联的仓位ID
+}
+
+func shouldUseActionForPerformance(action DecisionAction) bool {
+	if !action.Success {
+		return false
+	}
+	if (action.Action == "close_long" || action.Action == "close_short") &&
+		action.ExecutionType == "passive" &&
+		action.PriceSource != "exchange_trade" {
+		return false
+	}
+	return true
 }
 
 const (
@@ -719,10 +733,10 @@ func (l *DecisionLogger) AnalyzePerformance(lookbackCycles int) (*PerformanceAna
 		quantity          float64 // 原始开仓数量
 		remainingQuantity float64 // 剩余未平数量（支持部分平仓）
 		leverage          int
-		positionID        string  // 仓位ID
+		positionID        string // 仓位ID
 	}
 	openPositions := make(map[string][]OpenPosition)
-	positionMap := make(map[string]*OpenPosition)    // positionID -> position（用于快速查找）
+	positionMap := make(map[string]*OpenPosition) // positionID -> position（用于快速查找）
 
 	// 为了避免开仓记录在窗口外导致匹配失败，需要先从所有历史记录中找出未平仓的持仓
 	// 获取更多历史记录来构建完整的持仓状态（使用更大的窗口）
@@ -731,7 +745,7 @@ func (l *DecisionLogger) AnalyzePerformance(lookbackCycles int) (*PerformanceAna
 		// 先从扩大的窗口中收集所有开仓记录
 		for _, record := range allRecords {
 			for _, action := range record.Decisions {
-				if !action.Success {
+				if !shouldUseActionForPerformance(action) {
 					continue
 				}
 
@@ -786,7 +800,7 @@ func (l *DecisionLogger) AnalyzePerformance(lookbackCycles int) (*PerformanceAna
 	// 遍历分析窗口内的记录，生成交易结果
 	for _, record := range records {
 		for _, action := range record.Decisions {
-			if !action.Success {
+			if !shouldUseActionForPerformance(action) {
 				continue
 			}
 
@@ -821,7 +835,7 @@ func (l *DecisionLogger) AnalyzePerformance(lookbackCycles int) (*PerformanceAna
 			case "close_long", "close_short":
 				// 优先通过positionID查找
 				var matchedPositions []*OpenPosition
-				
+
 				if action.PositionID != "" && positionMap[action.PositionID] != nil {
 					// 使用positionID精确匹配
 					matchedPositions = append(matchedPositions, positionMap[action.PositionID])
@@ -833,7 +847,7 @@ func (l *DecisionLogger) AnalyzePerformance(lookbackCycles int) (*PerformanceAna
 						}
 					}
 				}
-				
+
 				// 查找对应的开仓记录（支持部分平仓）
 				closeQuantity := action.Quantity
 				if closeQuantity == 0 && len(matchedPositions) > 0 {
@@ -872,12 +886,12 @@ func (l *DecisionLogger) AnalyzePerformance(lookbackCycles int) (*PerformanceAna
 					positionValue := actualCloseQty * openPrice
 					marginUsed := 0.0
 					pnlPct := 0.0
-					
+
 					// 防止杠杆为0导致除零错误
 					if leverage > 0 {
 						marginUsed = positionValue / float64(leverage)
-					if marginUsed > 0 {
-						pnlPct = (pnl / marginUsed) * 100
+						if marginUsed > 0 {
+							pnlPct = (pnl / marginUsed) * 100
 						}
 					}
 
@@ -888,7 +902,7 @@ func (l *DecisionLogger) AnalyzePerformance(lookbackCycles int) (*PerformanceAna
 
 					// 计算这次平仓后的剩余数量
 					remainingAfterClose := openPos.remainingQuantity - actualCloseQty
-					
+
 					if remainingAfterClose > 0.00000001 { // 浮点数精度处理
 						// 平仓后还有剩余，是部分平仓
 						isPartialClose = true
@@ -968,15 +982,15 @@ func (l *DecisionLogger) AnalyzePerformance(lookbackCycles int) (*PerformanceAna
 			}
 		}
 	}
-	
+
 	// 清理已完全平仓的记录
 	for key, positions := range openPositions {
 		var remaining []OpenPosition
 		for _, pos := range positions {
 			if pos.remainingQuantity > 0.00000001 {
 				remaining = append(remaining, pos)
-				}
 			}
+		}
 		openPositions[key] = remaining
 	}
 

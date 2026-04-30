@@ -3,6 +3,9 @@
 *.iml
 *.xml
 
+# Go 编译缓存
+.gocache/
+
 # 编译产物
 main-auto
 *.exe

@@ -118,17 +118,26 @@ func Get(symbol string) (*Data, error) {
 	if err != nil {
 		return nil, fmt.Errorf("获取3分钟K线失败: %v", err)
 	}
+	if len(klines3m) == 0 {
+		return nil, fmt.Errorf("获取3分钟K线失败: 返回空数据")
+	}
 
 	// 获取1小时K线数据
 	klines1h, err := getKlines(symbol, "1h", 120)
 	if err != nil {
 		return nil, fmt.Errorf("获取1小时K线失败: %v", err)
 	}
+	if len(klines1h) == 0 {
+		return nil, fmt.Errorf("获取1小时K线失败: 返回空数据")
+	}
 
 	// 获取4小时K线数据 (最近10个)
 	klines4h, err := getKlines(symbol, "4h", 60) // 多获取用于计算指标
 	if err != nil {
 		return nil, fmt.Errorf("获取4小时K线失败: %v", err)
+	}
+	if len(klines4h) == 0 {
+		return nil, fmt.Errorf("获取4小时K线失败: 返回空数据")
 	}
 
 	// 计算当前指标 (基于3分钟最新数据)
@@ -214,6 +223,9 @@ func getKlines(symbol, interval string, limit int) ([]Kline, error) {
 	if err != nil {
 		return nil, err
 	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Binance K线接口返回错误 (status %d): %s", resp.StatusCode, string(body))
+	}
 
 	var rawData [][]interface{}
 	if err := json.Unmarshal(body, &rawData); err != nil {
@@ -248,6 +260,9 @@ func getKlines(symbol, interval string, limit int) ([]Kline, error) {
 			Volume:    volume,
 			CloseTime: int64(closeTimeF),
 		})
+	}
+	if len(klines) == 0 {
+		return nil, fmt.Errorf("Binance K线接口返回空数据: %s %s", symbol, interval)
 	}
 
 	return klines, nil

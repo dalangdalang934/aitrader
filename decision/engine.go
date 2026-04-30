@@ -1,14 +1,14 @@
 package decision
 
 import (
-	_ "embed"
-	"encoding/json"
-	"fmt"
-	"log"
 	"aitrade/learning"
 	"aitrade/market"
 	"aitrade/mcp"
 	"aitrade/pool"
+	_ "embed"
+	"encoding/json"
+	"fmt"
+	"log"
 	"strings"
 	"text/template"
 	"time"
@@ -142,7 +142,7 @@ func GetFullDecision(ctx *Context, mcpClient *mcp.Client) (*FullDecision, error)
 	}
 
 	// 4. 解析AI响应
-	decision, err := parseFullDecisionResponse(aiResponse, ctx.Account.TotalEquity, ctx.BTCETHLeverage, ctx.AltcoinLeverage)
+	decision, err := parseFullDecisionResponse(aiResponse, ctx.MarketDataMap, ctx.Account.TotalEquity, ctx.BTCETHLeverage, ctx.AltcoinLeverage)
 	if err != nil {
 		return nil, fmt.Errorf("解析AI响应失败: %w", err)
 	}
@@ -729,7 +729,7 @@ func buildUserPrompt(ctx *Context) string {
 }
 
 // parseFullDecisionResponse 解析AI的完整决策响应
-func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthLeverage, altcoinLeverage int) (*FullDecision, error) {
+func parseFullDecisionResponse(aiResponse string, marketData map[string]*market.Data, accountEquity float64, btcEthLeverage, altcoinLeverage int) (*FullDecision, error) {
 	// 1. 提取思维链
 	cotTrace := extractCoTTrace(aiResponse)
 
@@ -743,7 +743,7 @@ func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthL
 	}
 
 	// 3. 验证决策
-	if err := validateDecisions(decisions, accountEquity, btcEthLeverage, altcoinLeverage); err != nil {
+	if err := validateDecisions(decisions, marketData, accountEquity, btcEthLeverage, altcoinLeverage); err != nil {
 		return &FullDecision{
 			CoTTrace:  cotTrace,
 			Decisions: decisions,
@@ -811,9 +811,9 @@ func fixMissingQuotes(jsonStr string) string {
 }
 
 // validateDecisions 验证所有决策（需要账户信息和杠杆配置）
-func validateDecisions(decisions []Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int) error {
+func validateDecisions(decisions []Decision, marketData map[string]*market.Data, accountEquity float64, btcEthLeverage, altcoinLeverage int) error {
 	for i, decision := range decisions {
-		if err := validateDecision(&decision, accountEquity, btcEthLeverage, altcoinLeverage); err != nil {
+		if err := validateDecision(&decision, marketData, accountEquity, btcEthLeverage, altcoinLeverage); err != nil {
 			return fmt.Errorf("决策 #%d 验证失败: %w", i+1, err)
 		}
 	}
@@ -843,7 +843,7 @@ func findMatchingBracket(s string, start int) int {
 }
 
 // validateDecision 验证单个决策的有效性
-func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int) error {
+func validateDecision(d *Decision, marketData map[string]*market.Data, accountEquity float64, btcEthLeverage, altcoinLeverage int) error {
 	// 验证action
 	validActions := map[string]bool{
 		"open_long":   true,
@@ -898,25 +898,28 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 			}
 		}
 
-		// 验证风险回报比（必须≥1:3）
-		// 计算入场价（假设当前市价）
-		var entryPrice float64
-		if d.Action == "open_long" {
-			// 做多：入场价在止损和止盈之间
-			entryPrice = d.StopLoss + (d.TakeProfit-d.StopLoss)*0.2 // 假设在20%位置入场
-		} else {
-			// 做空：入场价在止损和止盈之间
-			entryPrice = d.StopLoss - (d.StopLoss-d.TakeProfit)*0.2 // 假设在20%位置入场
+		// 验证风险回报比（必须≥1:3），以当前市场价作为入场参考
+		symbol := market.Normalize(d.Symbol)
+		marketSnapshot, hasMarketData := marketData[symbol]
+		if !hasMarketData || marketSnapshot == nil || marketSnapshot.CurrentPrice <= 0 {
+			return fmt.Errorf("缺少 %s 当前价格，无法校验风险回报比", symbol)
 		}
+		entryPrice := marketSnapshot.CurrentPrice
 
 		var riskPercent, rewardPercent, riskRewardRatio float64
 		if d.Action == "open_long" {
+			if d.StopLoss >= entryPrice || d.TakeProfit <= entryPrice {
+				return fmt.Errorf("做多时当前价 %.4f 必须位于止损 %.4f 与止盈 %.4f 之间", entryPrice, d.StopLoss, d.TakeProfit)
+			}
 			riskPercent = (entryPrice - d.StopLoss) / entryPrice * 100
 			rewardPercent = (d.TakeProfit - entryPrice) / entryPrice * 100
 			if riskPercent > 0 {
 				riskRewardRatio = rewardPercent / riskPercent
 			}
 		} else {
+			if d.StopLoss <= entryPrice || d.TakeProfit >= entryPrice {
+				return fmt.Errorf("做空时当前价 %.4f 必须位于止盈 %.4f 与止损 %.4f 之间", entryPrice, d.TakeProfit, d.StopLoss)
+			}
 			riskPercent = (d.StopLoss - entryPrice) / entryPrice * 100
 			rewardPercent = (entryPrice - d.TakeProfit) / entryPrice * 100
 			if riskPercent > 0 {

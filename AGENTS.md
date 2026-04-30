@@ -128,7 +128,7 @@ validateDecisions()  → 硬约束校验
 - 山寨币杠杆 ≤ `AltcoinLeverage`，BTC/ETH ≤ `BTCETHLeverage`
 - 山寨币单币种仓位 ≤ 账户净值 × 1.5
 - BTC/ETH 单币种仓位 ≤ 账户净值 × 10
-- 风险回报比强制 ≥ 3:1
+- 风险回报比强制 ≥ 3:1（以当前市场价为入场参考校验）
 - 止损/止盈方向必须与多空方向一致
 
 **Decision 结构：**
@@ -181,7 +181,7 @@ Decision {
 
 ### `news/` — 新闻服务
 
-**数据源：** WebSocket / RSS / OpenNews API / Web Search Provider（周期性 AI 主动搜索）
+**数据源：** OpenNews API（WebSocket / HTTP）/ Web Search Provider（周期性 AI 主动搜索）；未启用 provider 时仅提供本地缓存读取
 
 **OpenNews API：** 84+ 实时数据源（Bloomberg、Reuters、CoinDesk 等），支持 REST API 和 WebSocket，自带 AI 评分（0-100）和交易信号（long/short/neutral）。配置字段：`news_opennews_enabled`、`news_opennews_api_url`、`news_opennews_ws_url`、`news_opennews_api_key`。
 

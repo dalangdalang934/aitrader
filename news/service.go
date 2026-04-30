@@ -4,13 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"math"
-	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -250,11 +248,7 @@ func (s *Service) Run(ctx context.Context) {
 		return
 	}
 
-	// 使用 WebSocket 作为默认新闻源
-	target := strings.TrimSpace(s.opts.WebsocketURL)
-	if target != "" {
-		s.runWebsocket(ctx, target)
-	}
+	log.Printf("%s: 未启用任何新闻 provider，Run 退出（仅保留缓存读取能力）", s.loggerPrefix)
 }
 
 func (s *Service) runWebsocket(ctx context.Context, target string) {

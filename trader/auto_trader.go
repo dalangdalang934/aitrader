@@ -609,13 +609,14 @@ func (at *AutoTrader) runCycle() error {
 	// 执行决策并记录结果
 	for _, d := range sortedDecisions {
 		actionRecord := logger.DecisionAction{
-			Action:    d.Action,
-			Symbol:    d.Symbol,
-			Quantity:  0,
-			Leverage:  d.Leverage,
-			Price:     0,
-			Timestamp: time.Now(),
-			Success:   false,
+			Action:        d.Action,
+			Symbol:        d.Symbol,
+			Quantity:      0,
+			Leverage:      d.Leverage,
+			Price:         0,
+			Timestamp:     time.Now(),
+			Success:       false,
+			ExecutionType: "active",
 		}
 
 		if err := at.executeDecisionWithRecord(&d, &actionRecord); err != nil {
@@ -978,9 +979,39 @@ func (at *AutoTrader) applyLearningConstraints(ctx *decision.Context, decisions 
 		}
 		globalNotes = append(globalNotes, fmt.Sprintf("🧊 回撤减速器：净值%.1f%%，仓位系数收紧至%.2f", profitPct, risk.PositionSizeMultiplier))
 	}
+
+	activePositions := make(map[string]struct{}, len(ctx.Positions))
+	for _, pos := range ctx.Positions {
+		key := strings.ToUpper(pos.Symbol) + "_" + strings.ToLower(pos.Side)
+		activePositions[key] = struct{}{}
+	}
+
+	plannedClosures := make(map[string]struct{})
+	for _, d := range decisions {
+		var side string
+		switch d.Action {
+		case "close_long":
+			side = "long"
+		case "close_short":
+			side = "short"
+		default:
+			continue
+		}
+
+		key := strings.ToUpper(d.Symbol) + "_" + side
+		if _, exists := activePositions[key]; exists {
+			plannedClosures[key] = struct{}{}
+		}
+	}
+
+	projectedPositionCount := ctx.Account.PositionCount - len(plannedClosures)
+	if projectedPositionCount < 0 {
+		projectedPositionCount = 0
+	}
+
 	maxSlots := math.MaxInt32
 	if risk.MaxConcurrentPositions > 0 {
-		remaining := risk.MaxConcurrentPositions - ctx.Account.PositionCount
+		remaining := risk.MaxConcurrentPositions - projectedPositionCount
 		if remaining < 0 {
 			remaining = 0
 		}
@@ -1006,8 +1037,8 @@ func (at *AutoTrader) applyLearningConstraints(ctx *decision.Context, decisions 
 			}
 			if maxSlots <= 0 {
 				notes = append(notes, fmt.Sprintf(
-					"⚠️ %s %s 被拒绝：学习状态将最大持仓收紧至 %d（当前持仓 %d）",
-					symbolUpper, action, risk.MaxConcurrentPositions, ctx.Account.PositionCount,
+					"⚠️ %s %s 被拒绝：学习状态将最大持仓收紧至 %d（预估执行后持仓 %d）",
+					symbolUpper, action, risk.MaxConcurrentPositions, projectedPositionCount,
 				))
 				continue
 			}
@@ -1669,6 +1700,46 @@ func sortDecisionsByPriority(decisions []decision.Decision) []decision.Decision 
 	return sorted
 }
 
+func (at *AutoTrader) lookupPassiveCloseFill(symbol, action string, approxQty float64) (float64, float64, int64, bool) {
+	trades, err := at.GetTradeHistory(50)
+	if err != nil || len(trades) == 0 {
+		return 0, 0, 0, false
+	}
+
+	maxAge := at.config.ScanInterval * 2
+	if maxAge < 30*time.Minute {
+		maxAge = 30 * time.Minute
+	}
+	cutoffMillis := time.Now().Add(-maxAge).UnixMilli()
+
+	for _, trade := range trades {
+		tradeSymbol, _ := trade["symbol"].(string)
+		tradeAction, _ := trade["action"].(string)
+		if !strings.EqualFold(tradeSymbol, symbol) || tradeAction != action {
+			continue
+		}
+
+		tradeTimeMillis := int64(toFloat(trade["time_millis"]))
+		if tradeTimeMillis > 0 && tradeTimeMillis < cutoffMillis {
+			continue
+		}
+
+		price := toFloat(trade["price"])
+		quantity := math.Abs(toFloat(trade["quantity"]))
+		if price <= 0 || quantity <= 0 {
+			continue
+		}
+		if approxQty > 0 && math.Abs(quantity-approxQty) > math.Max(approxQty*0.35, 1e-8) {
+			continue
+		}
+
+		orderID := int64(toFloat(trade["order_id"]))
+		return price, quantity, orderID, true
+	}
+
+	return 0, 0, 0, false
+}
+
 // checkAndRecordPassiveCloses 检查并记录被动平仓（止盈止损触发）
 // 注意：此方法应该在 buildTradingContext() 之后调用，以确保使用最新的持仓状态
 func (at *AutoTrader) checkAndRecordPassiveCloses() error {
@@ -1734,13 +1805,6 @@ func (at *AutoTrader) checkAndRecordPassiveCloses() error {
 		log.Printf("🔍 [%s] 检测到 %d 个持仓被平仓（可能是止盈止损触发）", at.name, len(closedPositions))
 
 		for _, pos := range closedPositions {
-			// 获取当前价格（作为平仓价）
-			marketData, err := market.Get(pos.Symbol)
-			if err != nil {
-				log.Printf("⚠️  [%s] 无法获取 %s 的价格，跳过记录", at.name, pos.Symbol)
-				continue
-			}
-
 			// 获取当前账户状态（用于更准确的记录）
 			balance, _ := at.trader.GetBalance()
 			totalEquity := 0.0
@@ -1777,24 +1841,53 @@ func (at *AutoTrader) checkAndRecordPassiveCloses() error {
 				action = "close_short"
 			}
 
+			closePrice := 0.0
+			closeQty := pos.PositionAmt
+			orderID := int64(0)
+			priceSource := "market_snapshot"
+
+			if verifiedPrice, verifiedQty, verifiedOrderID, ok := at.lookupPassiveCloseFill(pos.Symbol, action, pos.PositionAmt); ok {
+				closePrice = verifiedPrice
+				if verifiedQty > 0 {
+					closeQty = verifiedQty
+				}
+				orderID = verifiedOrderID
+				priceSource = "exchange_trade"
+			} else {
+				marketData, err := market.Get(pos.Symbol)
+				if err != nil {
+					log.Printf("⚠️  [%s] 无法获取 %s 的行情快照，跳过被动平仓记录", at.name, pos.Symbol)
+					continue
+				}
+				closePrice = marketData.CurrentPrice
+			}
+
 			// 创建平仓动作记录
 			actionRecord := logger.DecisionAction{
-				Action:    action,
-				Symbol:    pos.Symbol,
-				Quantity:  pos.PositionAmt,
-				Leverage:  int(pos.Leverage),
-				Price:     marketData.CurrentPrice, // 使用当前价格作为平仓价
-				Timestamp: time.Now(),
-				Success:   true,
+				Action:        action,
+				Symbol:        pos.Symbol,
+				Quantity:      closeQty,
+				Leverage:      int(pos.Leverage),
+				Price:         closePrice,
+				PriceSource:   priceSource,
+				OrderID:       orderID,
+				Timestamp:     time.Now(),
+				Success:       true,
+				ExecutionType: "passive",
 			}
 
 			record.Decisions = []logger.DecisionAction{actionRecord}
+			if priceSource != "exchange_trade" {
+				record.ExecutionLog = append(record.ExecutionLog,
+					fmt.Sprintf("被动平仓价格未在交易所成交记录中确认，已仅做事件记录，不计入绩效学习: %s %s @ %.4f",
+						pos.Symbol, pos.Side, closePrice))
+			}
 
 			// 记录到日志
 			if err := at.decisionLogger.LogDecision(record); err != nil {
 				log.Printf("⚠️  [%s] 记录被动平仓失败: %v", at.name, err)
 			} else {
-				log.Printf("✓ [%s] 已记录被动平仓: %s %s @ %.4f", at.name, pos.Symbol, pos.Side, marketData.CurrentPrice)
+				log.Printf("✓ [%s] 已记录被动平仓: %s %s @ %.4f (%s)", at.name, pos.Symbol, pos.Side, closePrice, priceSource)
 			}
 		}
 	}

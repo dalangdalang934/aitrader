@@ -148,7 +148,7 @@ func main() {
 		if len(providerNames) > 0 {
 			log.Printf("✓ 新闻服务初始化成功，活跃 provider: %s", strings.Join(providerNames, ", "))
 		} else {
-			log.Printf("✓ 新闻服务初始化成功 (默认 BWE RSS)")
+			log.Printf("✓ 新闻服务初始化成功（未启用 provider，将仅提供缓存数据）")
 		}
 
 		if newsAIClient != nil {
