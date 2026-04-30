@@ -341,6 +341,41 @@ def save_prompt(content):
         f.write(content)
     print(f"✅ 提示词已保存到 {PROMPT_FILE}")
 
+def rebuild_backend():
+    """重建并重启后端，使 go:embed 的提示词修改生效"""
+    docker_cmd = get_docker_compose_cmd()
+
+    if docker_cmd is None:
+        print("❌ 错误: 未检测到 Docker Compose")
+        print("💡 提示词已保存，但后端需要重新构建后才能生效")
+        return False
+
+    print("🔨 正在重建并重启 backend（提示词通过 go:embed 编译进二进制）...")
+    result = os.system(f"{docker_cmd} up -d --build backend")
+    if result == 0:
+        print("✅ backend 已重建并重启，最新提示词已生效")
+        return True
+
+    print("❌ backend 重建失败")
+    return False
+
+def rebuild_system():
+    """全量重建并重启系统"""
+    docker_cmd = get_docker_compose_cmd()
+
+    if docker_cmd is None:
+        print("❌ 错误: 未检测到 Docker Compose")
+        return False
+
+    print("🔨 正在全量重建并重启系统...")
+    result = os.system(f"{docker_cmd} up -d --build")
+    if result == 0:
+        print("✅ 系统已全量重建并重启")
+        return True
+
+    print("❌ 系统全量重建失败")
+    return False
+
 def edit_with_editor(content):
     """使用系统编辑器编辑"""
     # 优先使用 nano（更容易上手），其次 vim，最后 vi
@@ -444,6 +479,7 @@ def restore_backup():
         
         save_prompt(content)
         print(f"✅ 已恢复备份: {backup_name}")
+        print("💡 恢复后的提示词需重建 backend 才会生效")
     except (ValueError, IndexError):
         print("❌ 无效选择")
 
@@ -495,6 +531,15 @@ def prompt_menu():
             content = load_prompt()
         elif choice == '5':
             save_prompt(content)
+            print("💡 提示: system_prompt.tmpl 通过 go:embed 编译进 backend，普通 restart 不会加载新提示词")
+            print("1. 立即重建 backend（推荐）")
+            print("2. 全量重建前后端")
+            print("3. 仅保存，稍后手动处理")
+            rebuild_choice = input("请选择 [1-3]: ").strip()
+            if rebuild_choice == '1':
+                rebuild_backend()
+            elif rebuild_choice == '2':
+                rebuild_system()
             return
         elif choice == '6':
             if modified:
@@ -584,10 +629,12 @@ def system_maintenance():
     print("1. 查看系统状态")
     print("2. 查看日志")
     print("3. 重启系统")
-    print("4. 停止系统")
-    print("5. 返回")
+    print("4. 重建 backend")
+    print("5. 全量重建系统")
+    print("6. 停止系统")
+    print("7. 返回")
     
-    choice = input("\n请选择 [1-5]: ").strip()
+    choice = input("\n请选择 [1-7]: ").strip()
     
     docker_cmd = get_docker_compose_cmd()
     
@@ -627,6 +674,10 @@ def system_maintenance():
         else:
             print("Docker 未运行，请手动重启")
     elif choice == '4':
+        rebuild_backend()
+    elif choice == '5':
+        rebuild_system()
+    elif choice == '6':
         print("🛑 停止系统...")
         if docker_cmd:
             os.system(f"{docker_cmd} down")
@@ -650,6 +701,7 @@ def restart_system():
         print("\n" + "="*50)
         print("  ✅ 系统重启成功!")
         print("="*50)
+        print("\n⚠️  注意: 若刚修改过提示词，仅 restart 不会生效，请改用“重建 backend”")
         print("\n📊 访问面板:")
         print("   本地访问: http://localhost:3000")
         print("   公网访问: http://<服务器IP>:3000")

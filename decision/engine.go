@@ -493,13 +493,13 @@ func buildUserPrompt(ctx *Context) string {
 			ageText = fmt.Sprintf("%d分钟", int(age.Minutes()))
 		}
 
-		sb.WriteString("## 🧠 学习状态指令\n\n")
+		sb.WriteString("## 🧠 历史经验参考\n\n")
 		sb.WriteString(fmt.Sprintf("生成时间：%s（约%s前）\n\n", ls.GeneratedAt.Format("2006-01-02 15:04"), ageText))
 		sb.WriteString(fmt.Sprintf("- 概览：%s\n", ls.Summary))
-		sb.WriteString(fmt.Sprintf("- 风险指引：信心≥%d | 最多持仓%d | 仓位系数%.2f | 冷静期%d分钟\n",
+		sb.WriteString(fmt.Sprintf("- 历史画像：常见信心区间参考 %d | 常见持仓上限参考 %d | 常见仓位系数参考 %.2f | 建议冷静期 %d分钟\n",
 			ls.Risk.ConfidenceThreshold, ls.Risk.MaxConcurrentPositions, ls.Risk.PositionSizeMultiplier, ls.Risk.CooldownMinutes))
 		if ls.Execution.MinHoldMinutes > 0 || ls.Execution.MaxTradesPerHour > 0 {
-			sb.WriteString(fmt.Sprintf("- 执行约束：持仓不少于%d分钟 | 频率≤%.2f 笔/小时\n",
+			sb.WriteString(fmt.Sprintf("- 历史节奏参考：平均持仓约 %d分钟 | 频率约 %.2f 笔/小时\n",
 				ls.Execution.MinHoldMinutes, ls.Execution.MaxTradesPerHour))
 		}
 
@@ -516,13 +516,13 @@ func buildUserPrompt(ctx *Context) string {
 			}
 		}
 		if len(focusList) > 0 {
-			sb.WriteString(fmt.Sprintf("- 重点关注：%s\n", strings.Join(focusList, "；")))
+			sb.WriteString(fmt.Sprintf("- 历史强势币种：%s\n", strings.Join(focusList, "；")))
 		}
 		if len(avoidList) > 0 {
-			sb.WriteString(fmt.Sprintf("- 禁止开仓：%s\n", strings.Join(avoidList, "；")))
+			sb.WriteString(fmt.Sprintf("- 历史弱势币种：%s\n", strings.Join(avoidList, "；")))
 		}
 		if len(watchList) > 0 {
-			sb.WriteString(fmt.Sprintf("- 观察名单：%s\n", strings.Join(watchList, "；")))
+			sb.WriteString(fmt.Sprintf("- 中性观察名单：%s\n", strings.Join(watchList, "；")))
 		}
 
 		if len(ls.Execution.Comments) > 0 {

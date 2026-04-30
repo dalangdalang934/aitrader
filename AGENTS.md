@@ -221,6 +221,8 @@ decision_logs/ → logger.AnalyzePerformance() → learning.Manager.Update() →
 - `Symbols`：每个币种的 `focus` / `avoid` / `watch` 指令
 - `Insights`：关键反思要点列表
 
+**当前行为：** 学习状态主要作为 Prompt 中的历史经验参考，不再直接按 `ConfidenceThreshold` / `MaxConcurrentPositions` / `PositionSizeMultiplier` 对 AI 开仓做硬拦截；执行层仅在累计收益过高或回撤过深时启用保护性缩仓与持仓收紧。
+
 当前存储：`data/learning/<trader_id>.json`（规划迁移至 SQLite `learning_states` 表）。
 
 ---
@@ -388,6 +390,7 @@ pm2 start pm2.config.js
 - **Prompt 内容** → 改 `decision/templates/system_prompt.tmpl`（固定约束）或 `decision/engine.go` 的 `buildUserPrompt()`（动态数据）
 - **验证规则** → 改 `decision/engine.go` 的 `validateDecisions()`
 - **新增市场指标** → 改 `market/` 下的计算函数 + `market.Format()` 序列化
+- **提示词部署注意** → `decision/templates/system_prompt.tmpl` 通过 `go:embed` 编译进 backend，修改后必须重建 backend（仅 `restart` 不会生效）
 
 ### 修改 API 端点
 

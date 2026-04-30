@@ -943,75 +943,73 @@ func (at *AutoTrader) applyLearningConstraints(ctx *decision.Context, decisions 
 		return decisions, nil
 	}
 
-	avoid := make(map[string]string)
-	for _, directive := range state.Symbols {
-		if directive.Action == "avoid" {
-			avoid[strings.ToUpper(directive.Symbol)] = directive.Reason
-		}
-	}
-
-	risk := state.Risk
 	globalNotes := []string{}
 	profitPct := ctx.Account.TotalPnLPct
+	protectionActive := false
+	positionSizeMultiplier := 1.0
+	maxConcurrentPositions := 0
 
 	lock := func(target float64, maxPositions int) {
+		protectionActive = true
 		if target <= 0 {
 			target = 0.25
 		}
-		if risk.PositionSizeMultiplier <= 0 || risk.PositionSizeMultiplier > target {
-			risk.PositionSizeMultiplier = target
+		if positionSizeMultiplier <= 0 || positionSizeMultiplier > target {
+			positionSizeMultiplier = target
 		}
-		if risk.MaxConcurrentPositions == 0 || risk.MaxConcurrentPositions > maxPositions {
-			risk.MaxConcurrentPositions = maxPositions
+		if maxConcurrentPositions == 0 || maxConcurrentPositions > maxPositions {
+			maxConcurrentPositions = maxPositions
 		}
 	}
 
 	switch {
 	case profitPct >= 15:
 		lock(0.25, 1)
-		globalNotes = append(globalNotes, fmt.Sprintf("🔐 超级锁盈模式：净值+%.1f%%，仓位系数≤%.2f，最大持仓≤%d", profitPct, risk.PositionSizeMultiplier, risk.MaxConcurrentPositions))
+		globalNotes = append(globalNotes, fmt.Sprintf("🔐 超级锁盈模式：净值+%.1f%%，仓位系数≤%.2f，最大持仓≤%d", profitPct, positionSizeMultiplier, maxConcurrentPositions))
 	case profitPct >= 8:
 		lock(0.4, 2)
-		globalNotes = append(globalNotes, fmt.Sprintf("🔒 锁盈保护：净值+%.1f%%，仓位系数≤%.2f，最大持仓≤%d", profitPct, risk.PositionSizeMultiplier, risk.MaxConcurrentPositions))
+		globalNotes = append(globalNotes, fmt.Sprintf("🔒 锁盈保护：净值+%.1f%%，仓位系数≤%.2f，最大持仓≤%d", profitPct, positionSizeMultiplier, maxConcurrentPositions))
 	case profitPct <= -6:
-		if risk.PositionSizeMultiplier <= 0 || risk.PositionSizeMultiplier > 0.6 {
-			risk.PositionSizeMultiplier = 0.6
+		protectionActive = true
+		if positionSizeMultiplier <= 0 || positionSizeMultiplier > 0.6 {
+			positionSizeMultiplier = 0.6
 		}
-		globalNotes = append(globalNotes, fmt.Sprintf("🧊 回撤减速器：净值%.1f%%，仓位系数收紧至%.2f", profitPct, risk.PositionSizeMultiplier))
+		globalNotes = append(globalNotes, fmt.Sprintf("🧊 回撤减速器：净值%.1f%%，仓位系数收紧至%.2f", profitPct, positionSizeMultiplier))
 	}
 
-	activePositions := make(map[string]struct{}, len(ctx.Positions))
-	for _, pos := range ctx.Positions {
-		key := strings.ToUpper(pos.Symbol) + "_" + strings.ToLower(pos.Side)
-		activePositions[key] = struct{}{}
-	}
-
-	plannedClosures := make(map[string]struct{})
-	for _, d := range decisions {
-		var side string
-		switch d.Action {
-		case "close_long":
-			side = "long"
-		case "close_short":
-			side = "short"
-		default:
-			continue
-		}
-
-		key := strings.ToUpper(d.Symbol) + "_" + side
-		if _, exists := activePositions[key]; exists {
-			plannedClosures[key] = struct{}{}
-		}
-	}
-
-	projectedPositionCount := ctx.Account.PositionCount - len(plannedClosures)
-	if projectedPositionCount < 0 {
-		projectedPositionCount = 0
-	}
-
+	projectedPositionCount := ctx.Account.PositionCount
 	maxSlots := math.MaxInt32
-	if risk.MaxConcurrentPositions > 0 {
-		remaining := risk.MaxConcurrentPositions - projectedPositionCount
+	if protectionActive && maxConcurrentPositions > 0 {
+		activePositions := make(map[string]struct{}, len(ctx.Positions))
+		for _, pos := range ctx.Positions {
+			key := strings.ToUpper(pos.Symbol) + "_" + strings.ToLower(pos.Side)
+			activePositions[key] = struct{}{}
+		}
+
+		plannedClosures := make(map[string]struct{})
+		for _, d := range decisions {
+			var side string
+			switch d.Action {
+			case "close_long":
+				side = "long"
+			case "close_short":
+				side = "short"
+			default:
+				continue
+			}
+
+			key := strings.ToUpper(d.Symbol) + "_" + side
+			if _, exists := activePositions[key]; exists {
+				plannedClosures[key] = struct{}{}
+			}
+		}
+
+		projectedPositionCount = ctx.Account.PositionCount - len(plannedClosures)
+		if projectedPositionCount < 0 {
+			projectedPositionCount = 0
+		}
+
+		remaining := maxConcurrentPositions - projectedPositionCount
 		if remaining < 0 {
 			remaining = 0
 		}
@@ -1027,28 +1025,20 @@ func (at *AutoTrader) applyLearningConstraints(ctx *decision.Context, decisions 
 		symbolUpper := strings.ToUpper(d.Symbol)
 
 		if isOpen {
-			if reason, blocked := avoid[symbolUpper]; blocked {
-				notes = append(notes, fmt.Sprintf("⚠️ %s %s 被拒绝：学习状态标记为避开（%s）", symbolUpper, action, reason))
-				continue
-			}
-			if risk.ConfidenceThreshold > 0 && d.Confidence > 0 && d.Confidence < risk.ConfidenceThreshold {
-				notes = append(notes, fmt.Sprintf("⚠️ %s %s 被拒绝：信心 %d 低于学习状态要求的 %d", symbolUpper, action, d.Confidence, risk.ConfidenceThreshold))
-				continue
-			}
-			if maxSlots <= 0 {
+			if protectionActive && maxSlots <= 0 {
 				notes = append(notes, fmt.Sprintf(
-					"⚠️ %s %s 被拒绝：学习状态将最大持仓收紧至 %d（预估执行后持仓 %d）",
-					symbolUpper, action, risk.MaxConcurrentPositions, projectedPositionCount,
+					"⚠️ %s %s 被拒绝：收益保护将最大持仓收紧至 %d（预估执行后持仓 %d）",
+					symbolUpper, action, maxConcurrentPositions, projectedPositionCount,
 				))
 				continue
 			}
-			if risk.PositionSizeMultiplier > 0 && d.PositionSizeUSD > 0 {
-				adjusted := d.PositionSizeUSD * risk.PositionSizeMultiplier
+			if protectionActive && positionSizeMultiplier > 0 && d.PositionSizeUSD > 0 {
+				adjusted := d.PositionSizeUSD * positionSizeMultiplier
 				if adjusted < 5 {
 					adjusted = 5
 				}
 				if math.Abs(adjusted-d.PositionSizeUSD) > 1e-6 {
-					notes = append(notes, fmt.Sprintf("ℹ️ %s 仓位调整: %.2f → %.2f (乘 %.2f)", symbolUpper, d.PositionSizeUSD, adjusted, risk.PositionSizeMultiplier))
+					notes = append(notes, fmt.Sprintf("ℹ️ %s 收益保护调整仓位: %.2f → %.2f (乘 %.2f)", symbolUpper, d.PositionSizeUSD, adjusted, positionSizeMultiplier))
 					d.PositionSizeUSD = adjusted
 				}
 			}
