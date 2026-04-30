@@ -18,6 +18,24 @@ import datetime
 
 CONFIG_FILE = "config.json"
 CONFIG_EXAMPLE = "config.json.example"
+DEFAULT_COIN_PRESET = [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "BNBUSDT",
+    "XRPUSDT",
+    "DOGEUSDT",
+    "ADAUSDT",
+    "AVAXUSDT",
+    "TRXUSDT",
+    "LINKUSDT",
+    "DOTUSDT",
+    "ATOMUSDT",
+    "LTCUSDT",
+    "ARBUSDT",
+    "OPUSDT",
+    "HYPEUSDT",
+]
 
 def load_config():
     """加载配置文件"""
@@ -37,6 +55,32 @@ def save_config(config):
     with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
         json.dump(config, f, indent=2, ensure_ascii=False)
     print(f"✅ 配置已保存到 {CONFIG_FILE}")
+
+def normalize_coin_symbol(symbol):
+    """规范化币种符号，默认补全USDT后缀"""
+    cleaned = symbol.strip().upper().replace("/", "").replace("-", "").replace("_", "")
+    if not cleaned:
+        return ""
+
+    suffixes = ("USDT", "USDC", "BUSD", "FDUSD", "USD")
+    if not cleaned.endswith(suffixes):
+        cleaned += "USDT"
+    return cleaned
+
+def parse_coin_list(raw_value):
+    """解析用户输入的币种列表，保留顺序并去重"""
+    tokens = raw_value.replace("\n", ",").replace(" ", ",").split(",")
+    result = []
+    seen = set()
+
+    for token in tokens:
+        symbol = normalize_coin_symbol(token)
+        if not symbol or symbol in seen:
+            continue
+        seen.add(symbol)
+        result.append(symbol)
+
+    return result
 
 def edit_trader(config):
     """编辑交易员配置"""
@@ -149,6 +193,68 @@ def edit_risk(config):
     print("✅ 风控配置更新完成")
     return True
 
+def edit_coin_pool(config):
+    """编辑币种池配置"""
+    while True:
+        use_default = config.get('use_default_coins', True)
+        default_coins = config.get('default_coins', []) or DEFAULT_COIN_PRESET.copy()
+        coin_pool_api_url = config.get('coin_pool_api_url', '')
+
+        print("\n" + "="*40)
+        print("  🪙 币种池配置")
+        print("="*40)
+        print(f"当前模式: {'白名单优先' if use_default else 'AI500/API优先'}")
+        print(f"白名单币种数: {len(default_coins)}")
+        print(f"AI500 API: {coin_pool_api_url or '未设置'}")
+        print("-"*40)
+        print("1. 👁️  查看当前白名单币种")
+        print("2. 🔁 切换 use_default_coins")
+        print("3. ✏️  编辑白名单币种")
+        print("4. 🌐 编辑 AI500 API URL")
+        print("5. ♻️  恢复推荐白名单")
+        print("6. ⬅️  返回")
+        print("="*40)
+
+        choice = input("\n请选择 [1-6]: ").strip()
+
+        if choice == '1':
+            print("\n📋 当前白名单币种:")
+            for i, symbol in enumerate(default_coins, start=1):
+                print(f"  {i:>2}. {symbol}")
+            input("\n按回车继续...")
+        elif choice == '2':
+            config['use_default_coins'] = not use_default
+            status = "启用" if config['use_default_coins'] else "关闭"
+            print(f"✅ 已{status}白名单优先模式")
+        elif choice == '3':
+            print("\n当前白名单:")
+            print(", ".join(default_coins))
+            print("💡 支持逗号、空格或换行分隔；输入 BTC 会自动补成 BTCUSDT")
+            raw_value = input("请输入新的币种列表: ").strip()
+            if raw_value:
+                symbols = parse_coin_list(raw_value)
+                if symbols:
+                    config['default_coins'] = symbols
+                    print(f"✅ 白名单已更新，共 {len(symbols)} 个币种")
+                else:
+                    print("⚠️  未解析出有效币种，保留原值")
+        elif choice == '4':
+            new_url = input(f"AI500 API URL [{coin_pool_api_url or '未设置'}]: ").strip()
+            if new_url:
+                config['coin_pool_api_url'] = new_url
+            elif coin_pool_api_url:
+                clear = input("清空 AI500 API URL? [y/N]: ").strip().lower()
+                if clear in ['y', 'yes', '是', '1']:
+                    config['coin_pool_api_url'] = ''
+            print("✅ AI500 API 配置已更新")
+        elif choice == '5':
+            config['default_coins'] = DEFAULT_COIN_PRESET.copy()
+            print(f"✅ 已恢复推荐白名单，共 {len(config['default_coins'])} 个币种")
+        elif choice == '6':
+            return True
+        else:
+            print("❌ 无效选择")
+
 def config_menu(config):
     """配置编辑菜单"""
     modified = False
@@ -160,12 +266,13 @@ def config_menu(config):
         print("1. 🧑‍💼 编辑交易员配置")
         print("2. 📈 编辑杠杆配置")
         print("3. 📰 编辑新闻配置")
-        print("4. 🛡️  编辑风控配置")
-        print("5. 💾 保存并返回")
-        print("6. ⬅️  返回（不保存）")
+        print("4. 🪙 编辑币种池配置")
+        print("5. 🛡️  编辑风控配置")
+        print("6. 💾 保存并返回")
+        print("7. ⬅️  返回（不保存）")
         print("="*40)
         
-        choice = input("\n请选择 [1-6]: ").strip()
+        choice = input("\n请选择 [1-7]: ").strip()
         
         if choice == '1':
             if edit_trader(config):
@@ -177,16 +284,19 @@ def config_menu(config):
             if edit_news(config):
                 modified = True
         elif choice == '4':
-            if edit_risk(config):
+            if edit_coin_pool(config):
                 modified = True
         elif choice == '5':
+            if edit_risk(config):
+                modified = True
+        elif choice == '6':
             save_config(config)
             print("\n💡 提示: 配置已保存，需要重启系统才能生效")
             restart = input("是否立即重启系统? [y/N]: ").strip().lower()
             if restart in ['y', 'yes', '是']:
                 restart_system()
             return
-        elif choice == '6':
+        elif choice == '7':
             if modified:
                 confirm = input("⚠️  有未保存的更改，确定返回? [y/N]: ").strip().lower()
                 if confirm in ['y', 'yes']:

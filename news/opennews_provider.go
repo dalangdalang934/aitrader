@@ -7,6 +7,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -32,11 +34,12 @@ func (p OpenNewsProvider) Name() string {
 
 // openNewsArticle OpenNews API 返回的文章结构
 type openNewsArticle struct {
-	ID         string `json:"id"`
-	Text       string `json:"text"`
-	NewsType   string `json:"newsType"`
-	EngineType string `json:"engineType"`
-	Link       string `json:"link"`
+	ID         interface{} `json:"id"`
+	Text       string      `json:"text"`
+	Source     string      `json:"source"`
+	NewsType   string      `json:"newsType"`
+	EngineType string      `json:"engineType"`
+	Link       string      `json:"link"`
 	Coins      []struct {
 		Symbol     string `json:"symbol"`
 		MarketType string `json:"market_type"`
@@ -50,12 +53,25 @@ type openNewsArticle struct {
 		Summary   string `json:"summary"`
 		EnSummary string `json:"enSummary"`
 	} `json:"aiRating,omitempty"`
-	TS int64 `json:"ts"`
+	TS interface{} `json:"ts"`
 }
 
 func (p OpenNewsProvider) Run(ctx context.Context, svc *Service) {
 	ws := strings.TrimSpace(p.WSURL)
 	if ws != "" {
+		parsedWS, err := url.Parse(ws)
+		if err != nil || (parsedWS.Scheme != "ws" && parsedWS.Scheme != "wss") {
+			api := strings.TrimSpace(p.APIURL)
+			if api != "" {
+				log.Printf("%s: OpenNews WS地址无效(%q)，降级为HTTP轮询", svc.loggerPrefix, ws)
+				p.runHTTP(ctx, svc, api)
+				return
+			}
+
+			log.Printf("%s: OpenNews WS地址无效(%q)，且未配置可用HTTP地址，跳过该provider", svc.loggerPrefix, ws)
+			return
+		}
+
 		// WebSocket 模式：添加 token 到 URL
 		if !strings.Contains(ws, "token=") && p.APIKey != "" {
 			sep := "?"
@@ -64,8 +80,41 @@ func (p OpenNewsProvider) Run(ctx context.Context, svc *Service) {
 			}
 			ws = ws + sep + "token=" + p.APIKey
 		}
-		svc.runWebsocket(ctx, ws)
-		return
+
+		api := strings.TrimSpace(p.APIURL)
+		backoff := svc.opts.ReconnectDelay
+		if backoff <= 0 {
+			backoff = 10 * time.Second
+		}
+
+		for {
+			if ctx.Err() != nil {
+				return
+			}
+
+			err := svc.consume(ctx, ws)
+			if err == nil || ctx.Err() != nil {
+				return
+			}
+
+			if shouldFallbackToHTTP(err) {
+				if api != "" {
+					log.Printf("%s: OpenNews WebSocket不可用(%v)，降级为HTTP轮询", svc.loggerPrefix, err)
+					p.runHTTP(ctx, svc, api)
+					return
+				}
+
+				log.Printf("%s: OpenNews WebSocket不可用(%v)，且未配置HTTP地址，停止该provider", svc.loggerPrefix, err)
+				return
+			}
+
+			log.Printf("%s: OpenNews WebSocket中断: %v，%v后重试", svc.loggerPrefix, err, backoff)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+		}
 	}
 
 	api := strings.TrimSpace(p.APIURL)
@@ -73,6 +122,18 @@ func (p OpenNewsProvider) Run(ctx context.Context, svc *Service) {
 		// HTTP 轮询模式
 		p.runHTTP(ctx, svc, api)
 	}
+}
+
+func shouldFallbackToHTTP(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "403 forbidden") ||
+		strings.Contains(msg, "401 unauthorized") ||
+		strings.Contains(msg, "upgrade to a higher plan") ||
+		strings.Contains(msg, "unlock this content")
 }
 
 func (p OpenNewsProvider) runHTTP(ctx context.Context, svc *Service, apiURL string) {
@@ -106,10 +167,11 @@ func (p OpenNewsProvider) runHTTP(ctx context.Context, svc *Service, apiURL stri
 }
 
 func (p OpenNewsProvider) fetchOpenNews(ctx context.Context, svc *Service, apiURL string) error {
-	// 构建请求 URL：使用 /open/news 端点获取最新新闻
-	target := strings.TrimSuffix(apiURL, "/") + "/open/news"
+	// 官方 latest 接口走 /open/news_search，而不是 /open/news。
+	target := strings.TrimSuffix(apiURL, "/") + "/open/news_search"
+	requestBody := strings.NewReader(`{"limit":20,"page":1}`)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, requestBody)
 	if err != nil {
 		return fmt.Errorf("构建 OpenNews 请求失败: %w", err)
 	}
@@ -118,6 +180,7 @@ func (p OpenNewsProvider) fetchOpenNews(ctx context.Context, svc *Service, apiUR
 	if p.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+p.APIKey)
 	}
+	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -130,21 +193,21 @@ func (p OpenNewsProvider) fetchOpenNews(ctx context.Context, svc *Service, apiUR
 		return fmt.Errorf("OpenNews 响应状态异常: %s | %s", resp.Status, strings.TrimSpace(string(body)))
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("读取 OpenNews 响应失败: %w", err)
 	}
 
-	// OpenNews 可能返回单条或多条文章
-	var articles []openNewsArticle
-	if err := json.Unmarshal(body, &articles); err != nil {
-		// 尝试解析单条
-		var single openNewsArticle
-		if err2 := json.Unmarshal(body, &single); err2 != nil {
-			return fmt.Errorf("解析 OpenNews JSON 失败: %w", err)
-		}
-		articles = []openNewsArticle{single}
+	// OpenNews latest 接口返回 envelope: { data: [...], total, success, ... }
+	var envelope struct {
+		Data []openNewsArticle `json:"data"`
 	}
+	if err := json.Unmarshal(responseBody, &envelope); err != nil {
+		return fmt.Errorf("解析 OpenNews JSON 失败: %w", err)
+	}
+
+	var articles []openNewsArticle
+	articles = envelope.Data
 
 	if len(articles) == 0 {
 		return nil
@@ -185,17 +248,13 @@ func (p OpenNewsProvider) buildNewsItem(article openNewsArticle, now time.Time) 
 	// 构建 raw 数据
 	raw, _ := json.Marshal(article)
 
-	// 解析时间戳（毫秒）
-	publishedAt := now
-	if article.TS > 0 {
-		publishedAt = time.UnixMilli(article.TS)
-	}
+	publishedAt := parseOpenNewsTime(article.TS, now)
 
 	return NewsItem{
-		ID:          article.ID,
+		ID:          parseOpenNewsID(article.ID),
 		Headline:    article.Text,
 		Content:     article.Text,
-		Source:      article.NewsType,
+		Source:      chooseOpenNewsSource(article),
 		SourceType:  article.EngineType,
 		URL:         article.Link,
 		Tags:        tags,
@@ -233,25 +292,85 @@ func (p OpenNewsProvider) buildDigest(article openNewsArticle, now time.Time) Di
 		summary = article.Text
 	}
 
-	// 解析时间戳
-	publishedAt := now
-	if article.TS > 0 {
-		publishedAt = time.UnixMilli(article.TS)
-	}
+	publishedAt := parseOpenNewsTime(article.TS, now)
 
 	return Digest{
-		ID:          article.ID,
+		ID:          parseOpenNewsID(article.ID),
 		Headline:    article.Text,
 		Summary:     summary,
 		Impact:      impact,
 		Sentiment:   impact,
 		Confidence:  confidence,
 		Reasoning:   "OpenNews AI Rating",
-		Source:      article.NewsType,
+		Source:      chooseOpenNewsSource(article),
 		SourceType:  article.EngineType,
 		URL:         article.Link,
 		PublishedAt: publishedAt,
 		CreatedAt:   now,
-		ItemIDs:     []string{article.ID},
+		ItemIDs:     []string{parseOpenNewsID(article.ID)},
 	}
+}
+
+func parseOpenNewsID(value interface{}) string {
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case float64:
+		return strconv.FormatInt(int64(typed), 10)
+	case int64:
+		return strconv.FormatInt(typed, 10)
+	case json.Number:
+		return typed.String()
+	default:
+		return ""
+	}
+}
+
+func parseOpenNewsTime(value interface{}, fallback time.Time) time.Time {
+	switch typed := value.(type) {
+	case string:
+		typed = strings.TrimSpace(typed)
+		if typed == "" {
+			return fallback
+		}
+		if ts, err := time.Parse(time.RFC3339Nano, typed); err == nil {
+			return ts
+		}
+		if ts, err := time.Parse(time.RFC3339, typed); err == nil {
+			return ts
+		}
+		if millis, err := strconv.ParseInt(typed, 10, 64); err == nil {
+			if millis > 1e12 {
+				return time.UnixMilli(millis)
+			}
+			if millis > 0 {
+				return time.Unix(millis, 0)
+			}
+		}
+	case float64:
+		if typed > 1e12 {
+			return time.UnixMilli(int64(typed))
+		}
+		if typed > 0 {
+			return time.Unix(int64(typed), 0)
+		}
+	case int64:
+		if typed > 1e12 {
+			return time.UnixMilli(typed)
+		}
+		if typed > 0 {
+			return time.Unix(typed, 0)
+		}
+	}
+	return fallback
+}
+
+func chooseOpenNewsSource(article openNewsArticle) string {
+	if source := strings.TrimSpace(article.Source); source != "" {
+		return source
+	}
+	if newsType := strings.TrimSpace(article.NewsType); newsType != "" {
+		return newsType
+	}
+	return strings.TrimSpace(article.EngineType)
 }
