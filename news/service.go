@@ -34,7 +34,7 @@ type Options struct {
 	MaxAge          time.Duration // 数据保留时长
 	PersistCooldown time.Duration // 持久化冷却时间
 	ReconnectDelay  time.Duration // WebSocket重连延迟
-	PingInterval    time.Duration // WebSocket心跳间隔（HTTP模式用作轮询间隔）
+	PingInterval    time.Duration // WebSocket心跳间隔
 	Summarizer      Summarizer    // 摘要生成器
 	WebSearch       WebSearchOptions
 	OpenNews        OpenNewsOptions // OpenNews API 配置

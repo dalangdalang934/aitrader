@@ -128,6 +128,9 @@ func main() {
 		newsOpts.OpenNews.APIURL = cfg.NewsOpenNewsAPIURL
 		newsOpts.OpenNews.WSURL = cfg.NewsOpenNewsWSURL
 		newsOpts.OpenNews.APIKey = cfg.NewsOpenNewsAPIKey
+		if d, err := time.ParseDuration(cfg.NewsOpenNewsPollInterval); err == nil {
+			newsOpts.OpenNews.PollInterval = d
+		}
 		log.Printf("📰 已启用 OpenNews 新闻源 (%s)", cfg.NewsOpenNewsAPIURL)
 	}
 

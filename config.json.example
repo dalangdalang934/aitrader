@@ -69,6 +69,7 @@
   "news_web_search_model": "perplexity/sonar",
   "news_opennews_enabled": false,
   "news_opennews_api_url": "https://ai.6551.io",
-  "news_opennews_ws_url": "wss://ai.6551.io/open/news_wss",
-  "news_opennews_api_key": "your-opennews-api-key"
+  "news_opennews_ws_url": "",
+  "news_opennews_api_key": "your-opennews-api-key",
+  "news_opennews_poll_interval": "15m"
 }

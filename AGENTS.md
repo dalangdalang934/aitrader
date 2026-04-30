@@ -181,7 +181,7 @@ Decision {
 
 **数据源：** OpenNews API（WebSocket / HTTP）/ Web Search Provider（周期性 AI 主动搜索）；未启用 provider 时仅提供本地缓存读取
 
-**OpenNews API：** 84+ 实时数据源（Bloomberg、Reuters、CoinDesk 等），支持 REST API 和 WebSocket，自带 AI 评分（0-100）和交易信号（long/short/neutral）。配置字段：`news_opennews_enabled`、`news_opennews_api_url`、`news_opennews_ws_url`、`news_opennews_api_key`。HTTP 轮询使用官方 `POST /open/news_search` 最新新闻接口；若 `news_opennews_ws_url` 不是合法的 `ws/wss` 地址，或 WebSocket 因 `401/403`、套餐权限不足等原因不可用，则自动降级为 `news_opennews_api_url` 的 HTTP 轮询模式。
+**OpenNews API：** 84+ 实时数据源（Bloomberg、Reuters、CoinDesk 等），支持 REST API 和 WebSocket，自带 AI 评分（0-100）和交易信号（long/short/neutral）。配置字段：`news_opennews_enabled`、`news_opennews_api_url`、`news_opennews_ws_url`、`news_opennews_api_key`、`news_opennews_poll_interval`。HTTP 轮询使用官方 `POST /open/news_search` 最新新闻接口，默认每 `15m` 拉取一次；若 `news_opennews_ws_url` 不是合法的 `ws/wss` 地址，或 WebSocket 因 `401/403`、套餐权限不足等原因不可用，则自动降级为 `news_opennews_api_url` 的 HTTP 轮询模式。
 
 **后台 goroutine：**
 - `Run(ctx)`：持续收新闻 → AI 生成摘要（`Digest`）→ 内存 + SQLite 持久化（降级文件）

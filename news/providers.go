@@ -32,9 +32,10 @@ func buildProviders(opts Options) []Provider {
 	}
 	if opts.OpenNews.Enabled {
 		providers = append(providers, OpenNewsProvider{
-			APIURL: opts.OpenNews.APIURL,
-			WSURL:  opts.OpenNews.WSURL,
-			APIKey: opts.OpenNews.APIKey,
+			APIURL:       opts.OpenNews.APIURL,
+			WSURL:        opts.OpenNews.WSURL,
+			APIKey:       opts.OpenNews.APIKey,
+			PollInterval: opts.OpenNews.PollInterval,
 		})
 	}
 	return providers

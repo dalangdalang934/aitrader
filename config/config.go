@@ -80,10 +80,11 @@ type Config struct {
 	NewsWebSearchModel    string `json:"news_web_search_model,omitempty"`
 
 	// OpenNews API 配置
-	NewsOpenNewsEnabled bool   `json:"news_opennews_enabled,omitempty"`
-	NewsOpenNewsAPIURL  string `json:"news_opennews_api_url,omitempty"`
-	NewsOpenNewsWSURL   string `json:"news_opennews_ws_url,omitempty"`
-	NewsOpenNewsAPIKey  string `json:"news_opennews_api_key,omitempty"`
+	NewsOpenNewsEnabled      bool   `json:"news_opennews_enabled,omitempty"`
+	NewsOpenNewsAPIURL       string `json:"news_opennews_api_url,omitempty"`
+	NewsOpenNewsWSURL        string `json:"news_opennews_ws_url,omitempty"`
+	NewsOpenNewsAPIKey       string `json:"news_opennews_api_key,omitempty"`
+	NewsOpenNewsPollInterval string `json:"news_opennews_poll_interval,omitempty"` // 例如 "15m"
 }
 
 // LoadConfig 从文件加载配置
@@ -227,6 +228,9 @@ func (c *Config) Validate() error {
 	}
 	if strings.TrimSpace(c.NewsWebSearchInterval) == "" {
 		c.NewsWebSearchInterval = "15m"
+	}
+	if strings.TrimSpace(c.NewsOpenNewsPollInterval) == "" {
+		c.NewsOpenNewsPollInterval = "15m"
 	}
 
 	// 设置杠杆默认值（适配币安子账户限制，最大5倍）

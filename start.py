@@ -167,7 +167,28 @@ def edit_news(config):
     new_key = input(f"OpenNews API Key [{api_key[:10] if api_key else '未设置'}...]: ").strip()
     if new_key:
         config['news_opennews_api_key'] = new_key
-    
+
+    api_url = config.get('news_opennews_api_url', 'https://ai.6551.io')
+    new_api_url = input(f"OpenNews API URL [{api_url}]: ").strip()
+    if new_api_url:
+        config['news_opennews_api_url'] = new_api_url
+
+    ws_url = config.get('news_opennews_ws_url', '')
+    new_ws_url = input(f"OpenNews WS URL [{ws_url or '留空仅走HTTP'}]: ").strip()
+    if new_ws_url:
+        config['news_opennews_ws_url'] = new_ws_url
+    elif ws_url:
+        clear_ws = input("清空 OpenNews WS URL，仅使用 HTTP 轮询? [y/N]: ").strip().lower()
+        if clear_ws in ['y', 'yes', '是', '1']:
+            config['news_opennews_ws_url'] = ''
+    else:
+        config['news_opennews_ws_url'] = ''
+
+    poll_interval = config.get('news_opennews_poll_interval', '15m')
+    new_poll_interval = input(f"OpenNews HTTP轮询间隔 [{poll_interval}]: ").strip()
+    if new_poll_interval:
+        config['news_opennews_poll_interval'] = new_poll_interval
+
     print("✅ 新闻配置更新完成")
     return True
 

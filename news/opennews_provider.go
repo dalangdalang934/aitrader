@@ -15,17 +15,19 @@ import (
 
 // OpenNewsOptions OpenNews API 配置
 type OpenNewsOptions struct {
-	Enabled bool
-	APIURL  string // REST API 地址，如 https://ai.6551.io
-	WSURL   string // WebSocket 地址，如 wss://ai.6551.io/open/news_wss
-	APIKey  string // Bearer Token
+	Enabled      bool
+	APIURL       string        // REST API 地址，如 https://ai.6551.io
+	WSURL        string        // WebSocket 地址，如 wss://ai.6551.io/open/news_wss
+	APIKey       string        // Bearer Token
+	PollInterval time.Duration // HTTP 轮询间隔
 }
 
 // OpenNewsProvider OpenNews 新闻源
 type OpenNewsProvider struct {
-	APIURL string
-	WSURL  string
-	APIKey string
+	APIURL       string
+	WSURL        string
+	APIKey       string
+	PollInterval time.Duration
 }
 
 func (p OpenNewsProvider) Name() string {
@@ -137,9 +139,9 @@ func shouldFallbackToHTTP(err error) bool {
 }
 
 func (p OpenNewsProvider) runHTTP(ctx context.Context, svc *Service, apiURL string) {
-	interval := svc.opts.PingInterval
+	interval := p.PollInterval
 	if interval <= 0 {
-		interval = 40 * time.Second
+		interval = 15 * time.Minute
 	}
 
 	log.Printf("%s: OpenNews 服务启动（HTTP轮询），目标: %s，间隔: %s", svc.loggerPrefix, apiURL, interval)
