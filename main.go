@@ -72,9 +72,7 @@ func main() {
 	var stopNews context.CancelFunc
 	log.Printf("📰 初始化新闻服务...")
 	newsOpts := news.Options{
-		WebsocketURL: cfg.NewsWebsocketURL,
-		RSSURL:       cfg.NewsRSSURL,
-		StorageDir:   cfg.NewsStorageDir,
+		StorageDir: cfg.NewsStorageDir,
 	}
 
 	// 解析时间配置

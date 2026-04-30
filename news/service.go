@@ -30,8 +30,6 @@ type newsStore interface {
 
 // Options 定义新闻服务的启动参数
 type Options struct {
-	WebsocketURL    string        // WebSocket地址，如果以http://或https://开头则使用HTTP轮询
-	RSSURL          string        // RSS地址（如果使用RSS模式）
 	StorageDir      string        // 存储目录
 	RawFilename     string        // 原始新闻文件名
 	DigestFilename  string        // 摘要文件名
@@ -45,10 +43,6 @@ type Options struct {
 }
 
 func (o *Options) applyDefaults() {
-	if o.WebsocketURL == "" && o.RSSURL == "" {
-		// 默认使用RSS模式，使用BWE新闻RSS接口
-		o.RSSURL = "https://rss-public.bwe-ws.com/"
-	}
 	if o.StorageDir == "" {
 		o.StorageDir = filepath.Join("data", "news")
 	}
@@ -180,26 +174,6 @@ type persistedContainer struct {
 	Digests   []Digest   `json:"digests"`
 }
 
-type rssFeed struct {
-	Channel rssChannel `xml:"channel"`
-}
-
-type rssChannel struct {
-	Title string    `xml:"title"`
-	Items []rssItem `xml:"item"`
-}
-
-type rssItem struct {
-	GUID           string   `xml:"guid"`
-	Title          string   `xml:"title"`
-	Description    string   `xml:"description"`
-	Link           string   `xml:"link"`
-	PubDate        string   `xml:"pubDate"`
-	Source         string   `xml:"source"`
-	Categories     []string `xml:"category"`
-	ContentEncoded string   `xml:"http://purl.org/rss/1.0/modules/content/ encoded"`
-}
-
 var (
 	defaultService *Service
 	defaultMu      sync.RWMutex
@@ -276,17 +250,9 @@ func (s *Service) Run(ctx context.Context) {
 		return
 	}
 
-	// 保留旧逻辑作为兜底，兼容历史缓存和配置。
-	if s.opts.RSSURL != "" {
-		s.runHTTP(ctx, s.opts.RSSURL)
-		return
-	}
-
+	// 使用 WebSocket 作为默认新闻源
 	target := strings.TrimSpace(s.opts.WebsocketURL)
-	switch {
-	case strings.HasPrefix(target, "http://"), strings.HasPrefix(target, "https://"):
-		s.runHTTP(ctx, target)
-	default:
+	if target != "" {
 		s.runWebsocket(ctx, target)
 	}
 }
@@ -301,7 +267,7 @@ func (s *Service) runWebsocket(ctx context.Context, target string) {
 			return
 		}
 
-		if err := s.consume(ctx); err != nil {
+		if err := s.consume(ctx, target); err != nil {
 			if !errors.Is(err, context.Canceled) {
 				log.Printf("%s: 连接中断: %v，%v后重试", s.loggerPrefix, err, backoff)
 			}
@@ -315,42 +281,14 @@ func (s *Service) runWebsocket(ctx context.Context, target string) {
 	}
 }
 
-func (s *Service) runHTTP(ctx context.Context, target string) {
-	interval := s.opts.PingInterval
-	if interval <= 0 {
-		interval = 40 * time.Second
-	}
-
-	log.Printf("%s: 服务启动（HTTP轮询），目标: %s，间隔: %s", s.loggerPrefix, target, interval)
-
-	if err := s.fetchRSS(ctx, target); err != nil {
-		log.Printf("%s: 首次拉取RSS失败: %v", s.loggerPrefix, err)
-	}
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if err := s.fetchRSS(ctx, target); err != nil {
-				if !errors.Is(err, context.Canceled) {
-					log.Printf("%s: 拉取RSS失败: %v", s.loggerPrefix, err)
-				}
-			}
-		}
-	}
-}
-
 // consume 建立连接并读取数据直到出错或上下文取消
-func (s *Service) consume(ctx context.Context) error {
+func (s *Service) consume(ctx context.Context, targetURL string) error {
 	d := websocket.Dialer{
 		HandshakeTimeout: 15 * time.Second,
 	}
 
-	conn, resp, err := d.DialContext(ctx, s.opts.WebsocketURL, nil)
+	conn, resp, err := d.DialContext(ctx, targetURL, nil)
+
 	if err != nil {
 		var detail string
 		if resp != nil {
@@ -389,174 +327,6 @@ func (s *Service) consume(ctx context.Context) error {
 		case <-pingTicker.C:
 			_ = conn.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(5*time.Second))
 		}
-	}
-}
-
-func (s *Service) fetchRSS(ctx context.Context, target string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
-	if err != nil {
-		return fmt.Errorf("构建RSS请求失败: %w", err)
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("请求RSS失败: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return fmt.Errorf("RSS响应状态异常: %s | %s", resp.Status, strings.TrimSpace(string(body)))
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("读取RSS响应失败: %w", err)
-	}
-
-	var feed rssFeed
-	if err := xml.Unmarshal(body, &feed); err != nil {
-		return fmt.Errorf("解析RSS失败: %w", err)
-	}
-
-	if err := s.ingestRSSItems(feed.Channel.Items, feed.Channel.Title); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (s *Service) ingestRSSItems(items []rssItem, channelTitle string) error {
-	if len(items) == 0 {
-		return nil
-	}
-
-	newsItems := make([]NewsItem, 0, len(items))
-	digests := make([]Digest, 0, len(items))
-
-	for _, entry := range items {
-		item := s.buildNewsItemFromRSS(entry, channelTitle)
-		if item == nil {
-			continue
-		}
-		newsItems = append(newsItems, *item)
-		digests = append(digests, s.createDigest(*item))
-	}
-
-	if len(newsItems) == 0 {
-		return nil
-	}
-
-	added := 0
-	for i, item := range newsItems {
-		if s.ingestItemWithDigest(item, digests[i]) {
-			added++
-		}
-	}
-
-	if added > 0 {
-		log.Printf("%s: RSS新增 %d 条新闻", s.loggerPrefix, added)
-	}
-
-	return nil
-}
-
-func (s *Service) buildNewsItemFromRSS(entry rssItem, channelTitle string) *NewsItem {
-	// RSS的Title字段可能包含完整内容（标题+正文+<br/>标签等）
-	// 需要提取真正的标题（第一行或第一个<br/>之前的内容）
-	fullTitle := chooseNonEmpty(entry.Title)
-	headline := extractHeadlineFromTitle(fullTitle)
-
-	// Content可能是空的，或者Title已经包含了所有内容
-	content := chooseNonEmpty(entry.ContentEncoded, entry.Description)
-
-	// 如果content为空且title包含很多内容，则从title中提取正文部分
-	if content == "" && fullTitle != "" {
-		// 提取标题后的内容作为正文（跳过第一行）
-		var contentParts []string
-		if parts := strings.Split(fullTitle, "<br/>"); len(parts) > 1 {
-			contentParts = parts[1:]
-		} else if idx := strings.Index(fullTitle, "\n"); idx > 0 {
-			contentParts = strings.Split(fullTitle[idx+1:], "\n")
-		}
-
-		// 过滤掉明显不是正文的内容（时间戳、source URL、分隔线、市场数据等）
-		filteredParts := make([]string, 0, len(contentParts))
-		for _, part := range contentParts {
-			cleaned := strings.TrimSpace(part)
-			// 跳过空行、分隔线、时间戳格式、source URL、市场数据等
-			if cleaned == "" ||
-				strings.HasPrefix(cleaned, "————————————") ||
-				strings.HasPrefix(cleaned, "---") ||
-				strings.HasPrefix(cleaned, "source:") ||
-				strings.HasPrefix(cleaned, "http://") ||
-				strings.HasPrefix(cleaned, "https://") ||
-				strings.HasPrefix(cleaned, "t.co/") ||
-				strings.HasPrefix(cleaned, "x.com/") ||
-				regexp.MustCompile(`^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}`).MatchString(cleaned) ||
-				// 跳过市场数据行
-				regexp.MustCompile(`^\$[A-Z0-9]+\s*(MarketCap|市值)[:：\s]*\$?\d+[KMkmB]?$`).MatchString(cleaned) ||
-				// 跳过Auto match提示行
-				strings.Contains(cleaned, "Auto match") || strings.Contains(cleaned, "自动匹配") {
-				continue
-			}
-			filteredParts = append(filteredParts, cleaned)
-		}
-		content = strings.Join(filteredParts, " ")
-	}
-
-	if headline == "" && content == "" {
-		return nil
-	}
-
-	var published time.Time
-	if ts, err := tryParseTime(entry.PubDate); err == nil {
-		published = ts
-	} else {
-		published = time.Now()
-	}
-
-	source := chooseNonEmpty(entry.Source, channelTitle, "BWEnews RSS")
-	url := strings.TrimSpace(entry.Link)
-
-	var tags []string
-	for _, cat := range entry.Categories {
-		if trimmed := sanitize(cat); trimmed != "" {
-			tags = append(tags, trimmed)
-		}
-	}
-
-	id := sanitize(entry.GUID)
-	if id == "" {
-		id = strings.TrimSpace(entry.Link)
-	}
-	if id == "" {
-		id = fmt.Sprintf("rss-%s-%s", sanitize(entry.Title), entry.PubDate)
-	}
-	if id == "" {
-		id = fmt.Sprintf("rss-%d", time.Now().UnixNano())
-	}
-
-	rawEntry, _ := json.Marshal(entry)
-
-	// 对headline和content进行深度清理（移除URL、市场数据等），但保留英文和中文
-	headline = sanitize(headline)
-	headline = cleanFallbackContent(headline)
-
-	content = sanitize(content)
-	content = cleanFallbackContent(content)
-
-	return &NewsItem{
-		ID:          id,
-		Headline:    headline, // 已清理：HTML标签、URL、市场数据等
-		Content:     content,  // 已清理：HTML标签、URL、市场数据等
-		Source:      sanitize(source),
-		SourceType:  "rss",
-		URL:         url,
-		Tags:        tags,
-		PublishedAt: published,
-		ReceivedAt:  time.Now(),
-		Raw:         rawEntry,
 	}
 }
 

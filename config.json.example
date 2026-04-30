@@ -56,8 +56,6 @@
   "max_daily_loss": 10.0,
   "max_drawdown": 20.0,
   "stop_trading_minutes": 60,
-  "news_rss_url": "https://rss-public.bwe-ws.com/",
-  "news_websocket_url": "",
   "news_storage_dir": "data/news",
   "news_max_age": "12h",
   "news_persist_cooldown": "5s",

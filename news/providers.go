@@ -26,52 +26,8 @@ type WebSearchOptions struct {
 	Model    string
 }
 
-type BWERSSProvider struct {
-	URL string
-}
-
-func (p BWERSSProvider) Name() string {
-	return "bwe-rss"
-}
-
-func (p BWERSSProvider) Run(ctx context.Context, svc *Service) {
-	if strings.TrimSpace(p.URL) == "" {
-		return
-	}
-	svc.runHTTP(ctx, strings.TrimSpace(p.URL))
-}
-
-type BWEWebSocketProvider struct {
-	URL string
-}
-
-func (p BWEWebSocketProvider) Name() string {
-	return "bwe-websocket"
-}
-
-func (p BWEWebSocketProvider) Run(ctx context.Context, svc *Service) {
-	target := strings.TrimSpace(p.URL)
-	if target == "" {
-		return
-	}
-	switch {
-	case strings.HasPrefix(target, "http://"), strings.HasPrefix(target, "https://"):
-		svc.runHTTP(ctx, target)
-	default:
-		svc.runWebsocket(ctx, target)
-	}
-}
-
-
-
 func buildProviders(opts Options) []Provider {
-	providers := make([]Provider, 0, 4)
-	if rss := strings.TrimSpace(opts.RSSURL); rss != "" {
-		providers = append(providers, BWERSSProvider{URL: rss})
-	}
-	if ws := strings.TrimSpace(opts.WebsocketURL); ws != "" && ws != opts.RSSURL {
-		providers = append(providers, BWEWebSocketProvider{URL: ws})
-	}
+	providers := make([]Provider, 0, 2)
 	if opts.WebSearch.Enabled && opts.WebSearch.Client != nil {
 		providers = append(providers, NewWebSearchProvider(opts.WebSearch))
 	}

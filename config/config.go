@@ -66,8 +66,7 @@ type Config struct {
 	Leverage           LeverageConfig `json:"leverage"` // 杠杆配置
 
 	// 新闻服务配置
-	NewsWebsocketURL      string `json:"news_websocket_url,omitempty"`
-	NewsRSSURL            string `json:"news_rss_url,omitempty"`
+
 	NewsStorageDir        string `json:"news_storage_dir,omitempty"`
 	NewsMaxAge            string `json:"news_max_age,omitempty"`          // 例如 "2h"
 	NewsPersistCooldown   string `json:"news_persist_cooldown,omitempty"` // 例如 "5s"
