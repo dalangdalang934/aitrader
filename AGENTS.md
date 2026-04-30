@@ -126,11 +126,8 @@ validateDecisions()  → 硬约束校验
 ```
 
 **硬约束（`validateDecisions`，AI 无法绕过）：**
-- 山寨币杠杆 ≤ `AltcoinLeverage`，BTC/ETH ≤ `BTCETHLeverage`
-- 山寨币单币种仓位 ≤ 账户净值 × 1.5
-- BTC/ETH 单币种仓位 ≤ 账户净值 × 10
-- 风险回报比强制 ≥ 3:1（以当前市场价为入场参考校验）
-- 止损/止盈方向必须与多空方向一致
+- 最大持仓数 ≤ 3
+- 总持仓占比（总名义仓位 / 账户净值）≤ 200%
 
 **Decision 结构：**
 ```go

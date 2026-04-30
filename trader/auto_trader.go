@@ -871,31 +871,6 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 		}
 	}
 
-	if learningState != nil && len(candidateCoins) > 0 {
-		avoidSymbols := make(map[string]string)
-		for _, directive := range learningState.Symbols {
-			if directive.Action == "avoid" {
-				avoidSymbols[strings.ToUpper(directive.Symbol)] = directive.Reason
-			}
-		}
-		if len(avoidSymbols) > 0 {
-			var filtered []decision.CandidateCoin
-			var removed []string
-			for _, coin := range candidateCoins {
-				symbolUpper := strings.ToUpper(coin.Symbol)
-				if reason, blocked := avoidSymbols[symbolUpper]; blocked {
-					removed = append(removed, fmt.Sprintf("%s(%s)", symbolUpper, reason))
-					continue
-				}
-				filtered = append(filtered, coin)
-			}
-			if len(removed) > 0 {
-				log.Printf("🎯 学习状态过滤候选币种: %s", strings.Join(removed, ", "))
-			}
-			candidateCoins = filtered
-		}
-	}
-
 	// 6. 获取新闻摘要和宏观基本面研判（如果新闻服务可用）
 	var newsDigests interface{}
 	var macroOutlook interface{}
@@ -938,117 +913,7 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 }
 
 func (at *AutoTrader) applyLearningConstraints(ctx *decision.Context, decisions []decision.Decision) ([]decision.Decision, []string) {
-	state, ok := ctx.LearningStateCopy()
-	if !ok || state == nil {
-		return decisions, nil
-	}
-
-	globalNotes := []string{}
-	profitPct := ctx.Account.TotalPnLPct
-	protectionActive := false
-	positionSizeMultiplier := 1.0
-	maxConcurrentPositions := 0
-
-	lock := func(target float64, maxPositions int) {
-		protectionActive = true
-		if target <= 0 {
-			target = 0.25
-		}
-		if positionSizeMultiplier <= 0 || positionSizeMultiplier > target {
-			positionSizeMultiplier = target
-		}
-		if maxConcurrentPositions == 0 || maxConcurrentPositions > maxPositions {
-			maxConcurrentPositions = maxPositions
-		}
-	}
-
-	switch {
-	case profitPct >= 15:
-		lock(0.25, 1)
-		globalNotes = append(globalNotes, fmt.Sprintf("🔐 超级锁盈模式：净值+%.1f%%，仓位系数≤%.2f，最大持仓≤%d", profitPct, positionSizeMultiplier, maxConcurrentPositions))
-	case profitPct >= 8:
-		lock(0.4, 2)
-		globalNotes = append(globalNotes, fmt.Sprintf("🔒 锁盈保护：净值+%.1f%%，仓位系数≤%.2f，最大持仓≤%d", profitPct, positionSizeMultiplier, maxConcurrentPositions))
-	case profitPct <= -6:
-		protectionActive = true
-		if positionSizeMultiplier <= 0 || positionSizeMultiplier > 0.6 {
-			positionSizeMultiplier = 0.6
-		}
-		globalNotes = append(globalNotes, fmt.Sprintf("🧊 回撤减速器：净值%.1f%%，仓位系数收紧至%.2f", profitPct, positionSizeMultiplier))
-	}
-
-	projectedPositionCount := ctx.Account.PositionCount
-	maxSlots := math.MaxInt32
-	if protectionActive && maxConcurrentPositions > 0 {
-		activePositions := make(map[string]struct{}, len(ctx.Positions))
-		for _, pos := range ctx.Positions {
-			key := strings.ToUpper(pos.Symbol) + "_" + strings.ToLower(pos.Side)
-			activePositions[key] = struct{}{}
-		}
-
-		plannedClosures := make(map[string]struct{})
-		for _, d := range decisions {
-			var side string
-			switch d.Action {
-			case "close_long":
-				side = "long"
-			case "close_short":
-				side = "short"
-			default:
-				continue
-			}
-
-			key := strings.ToUpper(d.Symbol) + "_" + side
-			if _, exists := activePositions[key]; exists {
-				plannedClosures[key] = struct{}{}
-			}
-		}
-
-		projectedPositionCount = ctx.Account.PositionCount - len(plannedClosures)
-		if projectedPositionCount < 0 {
-			projectedPositionCount = 0
-		}
-
-		remaining := maxConcurrentPositions - projectedPositionCount
-		if remaining < 0 {
-			remaining = 0
-		}
-		maxSlots = remaining
-	}
-
-	result := make([]decision.Decision, 0, len(decisions))
-	var notes []string
-
-	for _, d := range decisions {
-		action := d.Action
-		isOpen := action == "open_long" || action == "open_short"
-		symbolUpper := strings.ToUpper(d.Symbol)
-
-		if isOpen {
-			if protectionActive && maxSlots <= 0 {
-				notes = append(notes, fmt.Sprintf(
-					"⚠️ %s %s 被拒绝：收益保护将最大持仓收紧至 %d（预估执行后持仓 %d）",
-					symbolUpper, action, maxConcurrentPositions, projectedPositionCount,
-				))
-				continue
-			}
-			if protectionActive && positionSizeMultiplier > 0 && d.PositionSizeUSD > 0 {
-				adjusted := d.PositionSizeUSD * positionSizeMultiplier
-				if adjusted < 5 {
-					adjusted = 5
-				}
-				if math.Abs(adjusted-d.PositionSizeUSD) > 1e-6 {
-					notes = append(notes, fmt.Sprintf("ℹ️ %s 收益保护调整仓位: %.2f → %.2f (乘 %.2f)", symbolUpper, d.PositionSizeUSD, adjusted, positionSizeMultiplier))
-					d.PositionSizeUSD = adjusted
-				}
-			}
-			maxSlots--
-		}
-
-		result = append(result, d)
-	}
-
-	return result, append(globalNotes, notes...)
+	return decisions, nil
 }
 
 // executeDecisionWithRecord 执行AI决策并记录详细信息
@@ -1070,7 +935,7 @@ func (at *AutoTrader) executeDecisionWithRecord(decision *decision.Decision, act
 	}
 }
 
-// ensurePositionAffordable 根据可用保证金动态缩放仓位，避免交易所拒单
+// ensurePositionAffordable 保留给未来可选的交易所预检查。
 func (at *AutoTrader) ensurePositionAffordable(decision *decision.Decision) error {
 	if decision.Leverage <= 0 {
 		return fmt.Errorf("杠杆必须大于0: %d", decision.Leverage)
@@ -1113,21 +978,6 @@ func (at *AutoTrader) ensurePositionAffordable(decision *decision.Decision) erro
 // executeOpenLongWithRecord 执行开多仓并记录详细信息
 func (at *AutoTrader) executeOpenLongWithRecord(decision *decision.Decision, actionRecord *logger.DecisionAction) error {
 	log.Printf("  📈 开多仓: %s", decision.Symbol)
-
-	// ⚠️ 关键：检查是否已有同币种同方向持仓，如果有则拒绝开仓（防止仓位叠加超限）
-	positions, err := at.trader.GetPositions()
-	if err == nil {
-		for _, pos := range positions {
-			if pos["symbol"] == decision.Symbol && pos["side"] == "long" {
-				return fmt.Errorf("❌ %s 已有多仓，拒绝开仓以防止仓位叠加超限。如需换仓，请先给出 close_long 决策", decision.Symbol)
-			}
-		}
-	}
-
-	// 根据可用保证金缩放仓位，避免提交到交易所被拒单
-	if err := at.ensurePositionAffordable(decision); err != nil {
-		return err
-	}
 
 	// 获取当前价格
 	marketData, err := market.Get(decision.Symbol)
@@ -1191,21 +1041,6 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *decision.Decision, act
 // executeOpenShortWithRecord 执行开空仓并记录详细信息
 func (at *AutoTrader) executeOpenShortWithRecord(decision *decision.Decision, actionRecord *logger.DecisionAction) error {
 	log.Printf("  📉 开空仓: %s", decision.Symbol)
-
-	// ⚠️ 关键：检查是否已有同币种同方向持仓，如果有则拒绝开仓（防止仓位叠加超限）
-	positions, err := at.trader.GetPositions()
-	if err == nil {
-		for _, pos := range positions {
-			if pos["symbol"] == decision.Symbol && pos["side"] == "short" {
-				return fmt.Errorf("❌ %s 已有空仓，拒绝开仓以防止仓位叠加超限。如需换仓，请先给出 close_short 决策", decision.Symbol)
-			}
-		}
-	}
-
-	// 根据可用保证金缩放仓位
-	if err := at.ensurePositionAffordable(decision); err != nil {
-		return err
-	}
 
 	// 获取当前价格
 	marketData, err := market.Get(decision.Symbol)

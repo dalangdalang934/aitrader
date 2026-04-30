@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"strings"
 	"text/template"
 	"time"
@@ -19,6 +20,8 @@ var systemPromptTemplate string
 
 var systemPromptTpl = template.Must(template.New("systemPrompt").Parse(systemPromptTemplate))
 
+const minRiskRewardRatio = 1.5
+
 type systemPromptTemplateData struct {
 	AccountEquity         string
 	AltRangeLow           string
@@ -27,6 +30,7 @@ type systemPromptTemplateData struct {
 	BtcRangeHigh          string
 	AltcoinLeverage       int
 	BtcEthLeverage        int
+	MinRiskRewardRatio    string
 	SampleBTCLeverage     int
 	SampleAltcoinLeverage int
 	SamplePositionUSD     string
@@ -142,7 +146,7 @@ func GetFullDecision(ctx *Context, mcpClient *mcp.Client) (*FullDecision, error)
 	}
 
 	// 4. 解析AI响应
-	decision, err := parseFullDecisionResponse(aiResponse, ctx.MarketDataMap, ctx.Account.TotalEquity, ctx.BTCETHLeverage, ctx.AltcoinLeverage)
+	decision, err := parseFullDecisionResponse(aiResponse, ctx.MarketDataMap, ctx.Account.TotalEquity, ctx.Positions)
 	if err != nil {
 		return nil, fmt.Errorf("解析AI响应失败: %w", err)
 	}
@@ -259,6 +263,7 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 		BtcRangeHigh:          fmt.Sprintf("%.0f", accountEquity*10),
 		AltcoinLeverage:       altcoinLeverage,
 		BtcEthLeverage:        btcEthLeverage,
+		MinRiskRewardRatio:    fmt.Sprintf("%.1f", minRiskRewardRatio),
 		SampleBTCLeverage:     sampleBTCLeverage,
 		SampleAltcoinLeverage: sampleAltcoinLeverage,
 		SamplePositionUSD:     fmt.Sprintf("%.0f", accountEquity*5),
@@ -729,7 +734,7 @@ func buildUserPrompt(ctx *Context) string {
 }
 
 // parseFullDecisionResponse 解析AI的完整决策响应
-func parseFullDecisionResponse(aiResponse string, marketData map[string]*market.Data, accountEquity float64, btcEthLeverage, altcoinLeverage int) (*FullDecision, error) {
+func parseFullDecisionResponse(aiResponse string, marketData map[string]*market.Data, accountEquity float64, positions []PositionInfo) (*FullDecision, error) {
 	// 1. 提取思维链
 	cotTrace := extractCoTTrace(aiResponse)
 
@@ -743,7 +748,7 @@ func parseFullDecisionResponse(aiResponse string, marketData map[string]*market.
 	}
 
 	// 3. 验证决策
-	if err := validateDecisions(decisions, marketData, accountEquity, btcEthLeverage, altcoinLeverage); err != nil {
+	if err := validateDecisions(decisions, marketData, accountEquity, positions); err != nil {
 		return &FullDecision{
 			CoTTrace:  cotTrace,
 			Decisions: decisions,
@@ -810,14 +815,76 @@ func fixMissingQuotes(jsonStr string) string {
 	return jsonStr
 }
 
-// validateDecisions 验证所有决策（需要账户信息和杠杆配置）
-func validateDecisions(decisions []Decision, marketData map[string]*market.Data, accountEquity float64, btcEthLeverage, altcoinLeverage int) error {
+// validateDecisions 仅保留基础运行校验与用户指定的两条硬限制：
+// 1. 总持仓数量 ≤ 3
+// 2. 总持仓占比（总名义仓位 / 账户净值）≤ 200%
+func validateDecisions(decisions []Decision, marketData map[string]*market.Data, accountEquity float64, positions []PositionInfo) error {
+	projectedPositionCount := len(positions)
+	projectedExposureUSD := currentExposureUSD(positions)
+	positionExposure := make(map[string]float64, len(positions))
+	for _, pos := range positions {
+		side := strings.ToLower(strings.TrimSpace(pos.Side))
+		key := strings.ToUpper(pos.Symbol) + "_" + side
+		price := pos.MarkPrice
+		if price <= 0 {
+			price = pos.EntryPrice
+		}
+		exposure := math.Abs(pos.Quantity * price)
+		if exposure <= 0 && pos.Leverage > 0 && pos.MarginUsed > 0 {
+			exposure = math.Abs(pos.MarginUsed * float64(pos.Leverage))
+		}
+		positionExposure[key] = exposure
+	}
+
 	for i, decision := range decisions {
-		if err := validateDecision(&decision, marketData, accountEquity, btcEthLeverage, altcoinLeverage); err != nil {
+		if err := validateDecision(&decision); err != nil {
 			return fmt.Errorf("决策 #%d 验证失败: %w", i+1, err)
+		}
+		switch decision.Action {
+		case "close_long", "close_short":
+			side := "long"
+			if decision.Action == "close_short" {
+				side = "short"
+			}
+			key := strings.ToUpper(decision.Symbol) + "_" + side
+			if exposure, ok := positionExposure[key]; ok {
+				projectedExposureUSD -= exposure
+				delete(positionExposure, key)
+			}
+			if projectedPositionCount > 0 {
+				projectedPositionCount--
+			}
+		case "open_long", "open_short":
+			projectedPositionCount++
+			if projectedPositionCount > 3 {
+				return fmt.Errorf("持仓数量将超过上限3个（执行到该笔后为%d个）", projectedPositionCount)
+			}
+			projectedExposureUSD += math.Abs(decision.PositionSizeUSD)
+			if accountEquity > 0 {
+				exposureRatio := projectedExposureUSD / accountEquity
+				if exposureRatio > 2.0 {
+					return fmt.Errorf("总持仓占比将超过200%%（执行到该笔后为%.2f%%）", exposureRatio*100)
+				}
+			}
 		}
 	}
 	return nil
+}
+
+func currentExposureUSD(positions []PositionInfo) float64 {
+	total := 0.0
+	for _, pos := range positions {
+		price := pos.MarkPrice
+		if price <= 0 {
+			price = pos.EntryPrice
+		}
+		exposure := math.Abs(pos.Quantity * price)
+		if exposure <= 0 && pos.Leverage > 0 && pos.MarginUsed > 0 {
+			exposure = math.Abs(pos.MarginUsed * float64(pos.Leverage))
+		}
+		total += exposure
+	}
+	return total
 }
 
 // findMatchingBracket 查找匹配的右括号
@@ -842,8 +909,8 @@ func findMatchingBracket(s string, start int) int {
 	return -1
 }
 
-// validateDecision 验证单个决策的有效性
-func validateDecision(d *Decision, marketData map[string]*market.Data, accountEquity float64, btcEthLeverage, altcoinLeverage int) error {
+// validateDecision 只做最小运行时校验，避免无效载荷直接打崩执行层。
+func validateDecision(d *Decision) error {
 	// 验证action
 	validActions := map[string]bool{
 		"open_long":   true,
@@ -860,77 +927,11 @@ func validateDecision(d *Decision, marketData map[string]*market.Data, accountEq
 
 	// 开仓操作必须提供完整参数
 	if d.Action == "open_long" || d.Action == "open_short" {
-		// 根据币种使用配置的杠杆上限
-		maxLeverage := altcoinLeverage          // 山寨币使用配置的杠杆
-		maxPositionValue := accountEquity * 1.5 // 山寨币最多1.5倍账户净值
-		if d.Symbol == "BTCUSDT" || d.Symbol == "ETHUSDT" {
-			maxLeverage = btcEthLeverage          // BTC和ETH使用配置的杠杆
-			maxPositionValue = accountEquity * 10 // BTC/ETH最多10倍账户净值
-		}
-
-		if d.Leverage <= 0 || d.Leverage > maxLeverage {
-			return fmt.Errorf("杠杆必须在1-%d之间（%s，当前配置上限%d倍）: %d", maxLeverage, d.Symbol, maxLeverage, d.Leverage)
+		if d.Leverage <= 0 {
+			return fmt.Errorf("杠杆必须大于0: %d", d.Leverage)
 		}
 		if d.PositionSizeUSD <= 0 {
 			return fmt.Errorf("仓位大小必须大于0: %.2f", d.PositionSizeUSD)
-		}
-		// 验证仓位价值上限（加1%容差以避免浮点数精度问题）
-		tolerance := maxPositionValue * 0.01 // 1%容差
-		if d.PositionSizeUSD > maxPositionValue+tolerance {
-			if d.Symbol == "BTCUSDT" || d.Symbol == "ETHUSDT" {
-				return fmt.Errorf("BTC/ETH单币种仓位价值不能超过%.0f USDT（10倍账户净值），实际: %.0f", maxPositionValue, d.PositionSizeUSD)
-			} else {
-				return fmt.Errorf("山寨币单币种仓位价值不能超过%.0f USDT（1.5倍账户净值），实际: %.0f", maxPositionValue, d.PositionSizeUSD)
-			}
-		}
-		if d.StopLoss <= 0 || d.TakeProfit <= 0 {
-			return fmt.Errorf("止损和止盈必须大于0")
-		}
-
-		// 验证止损止盈的合理性
-		if d.Action == "open_long" {
-			if d.StopLoss >= d.TakeProfit {
-				return fmt.Errorf("做多时止损价必须小于止盈价")
-			}
-		} else {
-			if d.StopLoss <= d.TakeProfit {
-				return fmt.Errorf("做空时止损价必须大于止盈价")
-			}
-		}
-
-		// 验证风险回报比（必须≥1:3），以当前市场价作为入场参考
-		symbol := market.Normalize(d.Symbol)
-		marketSnapshot, hasMarketData := marketData[symbol]
-		if !hasMarketData || marketSnapshot == nil || marketSnapshot.CurrentPrice <= 0 {
-			return fmt.Errorf("缺少 %s 当前价格，无法校验风险回报比", symbol)
-		}
-		entryPrice := marketSnapshot.CurrentPrice
-
-		var riskPercent, rewardPercent, riskRewardRatio float64
-		if d.Action == "open_long" {
-			if d.StopLoss >= entryPrice || d.TakeProfit <= entryPrice {
-				return fmt.Errorf("做多时当前价 %.4f 必须位于止损 %.4f 与止盈 %.4f 之间", entryPrice, d.StopLoss, d.TakeProfit)
-			}
-			riskPercent = (entryPrice - d.StopLoss) / entryPrice * 100
-			rewardPercent = (d.TakeProfit - entryPrice) / entryPrice * 100
-			if riskPercent > 0 {
-				riskRewardRatio = rewardPercent / riskPercent
-			}
-		} else {
-			if d.StopLoss <= entryPrice || d.TakeProfit >= entryPrice {
-				return fmt.Errorf("做空时当前价 %.4f 必须位于止盈 %.4f 与止损 %.4f 之间", entryPrice, d.TakeProfit, d.StopLoss)
-			}
-			riskPercent = (d.StopLoss - entryPrice) / entryPrice * 100
-			rewardPercent = (entryPrice - d.TakeProfit) / entryPrice * 100
-			if riskPercent > 0 {
-				riskRewardRatio = rewardPercent / riskPercent
-			}
-		}
-
-		// 硬约束：风险回报比必须≥3.0
-		if riskRewardRatio < 3.0 {
-			return fmt.Errorf("风险回报比过低(%.2f:1)，必须≥3.0:1 [风险:%.2f%% 收益:%.2f%%] [止损:%.2f 止盈:%.2f]",
-				riskRewardRatio, riskPercent, rewardPercent, d.StopLoss, d.TakeProfit)
 		}
 	}
 
